@@ -44,6 +44,11 @@ function EntryCard({
       {entry.deltas && entry.deltas.length > 0 && (
         <p className="cmdline mt-1">【数值变化】{entry.deltas.join(' · ')}</p>
       )}
+      {entry.aiDeltas && Object.keys(entry.aiDeltas).length > 0 && (
+        <p className="cmdline mt-1 opacity-70">
+          【AI 建议】{Object.entries(entry.aiDeltas).map(([k, v]) => `${k}:${JSON.stringify(v)}`).join(' · ')}
+        </p>
+      )}
       {entry.options && entry.options.length > 0 && (
         <div className="mt-3 flex flex-col gap-2">
           {(entry.options ?? []).map((opt, i) =>

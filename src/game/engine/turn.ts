@@ -25,6 +25,8 @@ export interface LogEntry {
   engine?: 'llm' | 'code' | 'offline'
   /** 本回合流逝月数（0=未流逝；供 UI 展示，便于核对时间来源） */
   passedMonths?: number
+  /** AI 原始建议的 deltas（展示用：本回合 AI 建议改什么，便于核对采纳/忽略） */
+  aiDeltas?: Record<string, unknown>
 }
 
 export interface TurnInput {
@@ -41,6 +43,8 @@ export interface TurnOutput {
   options: { text: string; tag?: string }[]
   scene?: SceneThemeKey
   deltas?: string[]
+  /** AI 原始建议的 deltas（展示用：让玩家看到 AI 建议了什么、哪些未被采纳） */
+  rawDeltas?: Record<string, unknown>
   timePassedMonths: number
   engine: 'llm' | 'code' | 'offline'
 }
@@ -358,6 +362,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
   // 时间唯一来源：AI 返回的 timePassedMonths（返回多少推进多少）；AI 未给/失败 → 不流逝
   let timePassedMonths = 0
   let deltas: string[] = []
+  let rawDeltas: Record<string, unknown> | undefined
   let engine: TurnOutput['engine'] = 'code'
   let nextState = input.state
 
@@ -376,6 +381,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
         // AI 返回的时间就是时间：返回多少推进多少；未返回 → 0（不流逝）
         timePassedMonths = typeof narrated.timePassedMonths === 'number' ? Math.max(0, Math.min(12, narrated.timePassedMonths)) : 0
         // 系统指令数值已由代码结算；AI deltas 只采纳状态类字段（伤势/异常/心境），防止双加
+        rawDeltas = narrated.deltas
         const applied = applyDeltas(nextState, narrated.deltas, 'status')
         nextState = applied.state
         deltas = applied.applied
@@ -405,6 +411,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       options = sanitizeOptions(result.options)
       // 场景主题由代码（系统指令）决定，忽略 AI 返回的 scene——否则 AI 乱给值导致背景在集市/洞府之间乱跳
       scene = undefined
+      rawDeltas = result.deltas
       const applied = applyDeltas(nextState, result.deltas)
       nextState = applied.state
       deltas = applied.applied
@@ -458,6 +465,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
     options,
     scene,
     deltas,
+    rawDeltas,
     timePassedMonths,
     engine,
   }
