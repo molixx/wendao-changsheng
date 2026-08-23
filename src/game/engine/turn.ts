@@ -7,6 +7,7 @@ import type { SceneThemeKey } from '../../ui/theme'
 import { callNarrator, narrateSystem, sanitizeOptions, buildSystemPrompt, isOfflineError } from '../narrator/llm'
 import { routeCommand, executeSystem, resolveOpening } from './actions'
 import { advanceTime, fmtTimeShort } from './time'
+import { itemNameOf } from './economy'
 import { WORLD_BIBLE } from '../data/worldview'
 import { NPCS } from '../data/world'
 import { ENLIGHTENMENT_BRANCHES, TECHNIQUES, INJURIES } from '../data/systems'
@@ -49,21 +50,33 @@ export function nextId(): number {
   return ++seq
 }
 
-/** 世界快照：压缩成 LLM 可读的上下文（对应原文「世界进度备忘录」） */
+/** 世界快照：压缩成 LLM 可读的上下文（对应原文「世界进度备忘录」）。
+ *  每次回合请求都会注入 system——AI 必须依据完整状态生成针对性选项/推进剧情 */
 export function buildWorldSnapshot(state: GameState): string {
   const p = state.player
   const r = state.res
   const t = state.timeline
+  const injName = r.injury ? (INJURIES.find((i) => i.id === r.injury)?.name ?? r.injury) : ''
+  const dyn: string[] = []
+  if (typeof state.flags.breakCooldown === 'number' && state.flags.breakCooldown > 0) dyn.push(`突破冷却${state.flags.breakCooldown}月`)
+  if (state.flags.modao) dyn.push('入魔')
+  if (state.flags.combat) dyn.push('战斗中')
+  if (r.statusEffects.length > 0) dyn.push(...r.statusEffects)
+  const bag = Object.entries(state.bag)
+    .map(([k, v]) => `${itemNameOf(k)}×${v}`)
+    .join('、')
   return [
     `回合#${state.turn} 天玄历${t.calendarYear}年${t.month}月（入道${t.year}年）`,
     `道号${p.daoName}（${p.name}）· ${p.gender} · ${p.age}岁`,
     `境界 ${p.realm}·${p.stage} · ${p.sect} · 仙姿${p.appearance}`,
     `六维 资质${p.stats.zizhi} 悟性${p.stats.wuxing} 神识${p.stats.shenshi} 遁速${p.stats.dunsu} 道心${p.stats.daoxin} 仙缘${p.stats.xianyuan}`,
-    `气血${r.hp}/${r.hpMax} 灵力${r.mp}/${r.mpMax} 修为${r.cult}/${r.cultMax} 寿元${r.lifespan}/${r.lifespanMax}`,
-    `灵石${r.spirit} 功德${r.merit} 业力${r.karma}${r.injury ? ` 受伤:${r.injury}` : ''}`,
-    `所在地 ${state.flags.location ?? '东洲·青岳'} · 时节${t.month}月 · 主线：${state.mainQuest || '无'}`,
+    `气血${r.hp}/${r.hpMax} 灵力${r.mp}/${r.mpMax} 修为${r.cult}/${r.cultMax} 寿元${r.lifespan}/${r.lifespanMax} 心境${r.mood}`,
+    `灵石${r.spirit} 功德${r.merit} 业力${r.karma}`,
+    `伤势${injName || '无'}${dyn.length > 0 ? ` · 异常：${dyn.join('、')}` : ''}`,
+    `背包：${bag || '空'}${state.cave ? ` · 洞府 灵气${state.cave.spiritConcentration}(Lv.${state.cave.level})` : ''}`,
+    `${state.sectInfo.sect !== '散修' ? `宗门 ${state.sectInfo.sect}·${state.sectInfo.rank}·贡献${state.sectInfo.contribution} · ` : ''}所在地 ${state.flags.location ?? '东洲·青岳'} · 时节${t.month}月 · 主线：${state.mainQuest || '无'}`,
     `功法：${state.gongfaIds.join('、') || '无'} 技艺：${Object.entries(state.techniqueLevels).map(([k, v]) => `${k}${v}`).join('、') || '无'}`,
-    `关系：${Object.entries(state.relationships).map(([k, v]) => `${NPCS.find((n) => n.id === k)?.name ?? k}:${v}`).join('、') || '无'}`,
+    `关系：${Object.entries(state.relationships).map(([k, v]) => `${NPCS.find((n) => n.id === k)?.name ?? k}:${v}`).join('、') || '无'}${state.daoPartner ? ` · 道侣：${state.daoPartner}` : ''}`,
   ].join('\n')
 }
 
