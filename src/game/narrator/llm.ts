@@ -75,7 +75,12 @@ ${worldSnapshot}
   "scene": "qingyu|xuanzi|zhusha|taofen|ziqi|liujin|tianqing|zhuqing",
   "deltas": {}
 }
-铁律：narrative 禁止输出任何 LaTeX / Markdown / HTML 标记（\fcolorbox、\textcolor、\colorbox、\begin{array}、\(...\)、#FFFFFF、代码块、加粗星号等一律禁止），界面由前端渲染，你只负责纯文字叙事；只推进 1 个事件节点；不替玩家决定重大事件（只以选项呈现）；数值变动以 deltas 给出但最终由系统结算；玩家可自由输入任意行动，你必须在世界逻辑内响应；真实修仙界会死、不暗中放水。`
+deltas 规则（可选，影响玩家状态卡）：用英文键给出**数值变化**——hp(气血) / mp(灵力) / cult(修为) / spirit(灵石) / merit(功德) / karma(业力) / lifespan(寿元)。
+写法二选一，前端都会处理：
+1) 增量：{"hp": -40, "spirit": 50}（带符号的"变化量"）
+2) 绝对剩余值（0~上限类字段适用）：{"hp": 60}（表示当前气血变为 60）
+不要用拼音或中文键（如 qi、气血）；消耗/回复气血灵力、灵石增减等必须写进 deltas，状态卡才会变。
+铁律：narrative 禁止输出任何 LaTeX / Markdown / HTML 标记（\fcolorbox、\textcolor、\colorbox、\begin{array}、\(...\)、#FFFFFF、代码块、加粗星号等一律禁止），界面由前端渲染，你只负责纯文字叙事；只推进 1 个事件节点；不替玩家决定重大事件（只以选项呈现）；玩家可自由输入任意行动，你必须在世界逻辑内响应；真实修仙界会死、不暗中放水。`
 }
 
 /** 连接测试结果 */

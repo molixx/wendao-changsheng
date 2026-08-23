@@ -63,26 +63,54 @@ export function buildWorldSnapshot(state: GameState): string {
   ].join('\n')
 }
 
-/** deltas 白名单与标签 */
-const DELTA_FIELDS = ['hp', 'mp', 'cult', 'spirit', 'merit', 'karma'] as const
-const DELTA_LABELS: Record<string, string> = { hp: '气血', mp: '灵力', cult: '修为', spirit: '灵石', merit: '功德', karma: '业力' }
+/** deltas 字段别名（模型常输出拼音/中文键）与标签 */
+const DELTA_ALIASES: Record<string, string> = {
+  hp: 'hp', 气血: 'hp', qi: 'hp', qixue: 'hp',
+  mp: 'mp', 灵力: 'mp', lingli: 'mp', fa: 'mp',
+  cult: 'cult', 修为: 'cult', xiwei: 'cult', xiuwei: 'cult',
+  spirit: 'spirit', 灵石: 'spirit', lingshi: 'spirit',
+  merit: 'merit', 功德: 'merit', gongde: 'merit',
+  karma: 'karma', 业力: 'karma', yeli: 'karma',
+  lifespan: 'lifespan', 寿元: 'lifespan', shouyuan: 'lifespan',
+}
+const DELTA_LABELS: Record<string, string> = { hp: '气血', mp: '灵力', cult: '修为', spirit: '灵石', merit: '功德', karma: '业力', lifespan: '寿元' }
+/** 0~max 型字段（支持绝对值语义） */
+const RANGED_FIELDS = new Set(['hp', 'mp', 'cult', 'lifespan'])
 
-/** 校验并应用 LLM 的数值变更（白名单字段、钳制、上限封顶、不为负）；越界/非法忽略 */
-export function applyDeltas(state: GameState, deltas?: Record<string, number>): { state: GameState; applied: string[] } {
+function toNumber(v: unknown): number | null {
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  if (typeof v === 'string' && v.trim()) {
+    const n = Number(v.trim())
+    if (Number.isFinite(n)) return n
+  }
+  return null
+}
+
+/** 校验并应用 LLM 的数值变更：字段别名映射、增量/绝对值双语义、钳制、上限封顶、不为负 */
+export function applyDeltas(state: GameState, deltas?: Record<string, unknown>): { state: GameState; applied: string[] } {
   if (!deltas) return { state, applied: [] }
   const res = { ...state.res }
   const applied: string[] = []
-  for (const f of DELTA_FIELDS) {
-    const v = deltas[f]
-    if (typeof v !== 'number' || !Number.isFinite(v) || v === 0) continue
-    const before = res[f]
-    let next = before + Math.round(v)
-    if (f === 'hp' || f === 'mp') next = Math.max(0, Math.min(next, res[`${f}Max`] as number))
-    else if (f === 'cult') next = Math.max(0, Math.min(next, res.cultMax))
-    else next = Math.max(0, next)
+  for (const [key, raw] of Object.entries(deltas)) {
+    const field = DELTA_ALIASES[key.toLowerCase ? key.toLowerCase() : key] ?? DELTA_ALIASES[key]
+    if (!field || typeof field !== 'string') continue
+    const v = toNumber(raw)
+    if (v === null || v === 0) continue
+    const before = res[field as keyof typeof res] as number
+    const max = (res[`${field}Max` as keyof typeof res] ?? Infinity) as number
+    let next: number
+    if (RANGED_FIELDS.has(field)) {
+      // 0~max 字段：负值=增量减；正值>当前=增量加（封顶）；0<=正值<=当前=绝对值（设为该值，模型常把"剩余值"写成绝对值）
+      next = v < 0 ? before + v : v > before ? Math.min(before + v, max) : v
+      next = Math.max(0, Math.min(next, max))
+    } else {
+      // 无上限字段（灵石/功德/业力）：增量语义（负减正加）
+      next = Math.max(0, before + v)
+    }
     if (next !== before) {
-      res[f] = next
-      applied.push(`${DELTA_LABELS[f]} ${v > 0 ? '+' : ''}${v}`)
+      res[field as keyof typeof res] = next as never
+      const label = DELTA_LABELS[field] ?? field
+      applied.push(`${label} ${before}→${next}`)
     }
   }
   return applied.length ? { state: { ...state, res }, applied } : { state, applied: [] }
