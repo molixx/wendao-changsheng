@@ -20,7 +20,7 @@ import { SPIRIT_ROOTS, DAO_PATHS } from '../data/creation'
 
 export type Command =
   | { kind: 'free' }
-  | { kind: 'cultivate'; closedDoor: boolean; months: number }
+  | { kind: 'cultivate'; closedDoor: boolean; months: number | null }
   | { kind: 'status' }
   | { kind: 'breakthrough'; path: '人道' | '地道' | '天道' | null }
   | { kind: 'enlighten'; branch: string | null }
@@ -48,7 +48,8 @@ export function routeCommand(input: string): Command {
   const a = input.trim()
   if (!a) return { kind: 'free' }
   if (/修炼|闭关|打坐|运功/.test(a)) {
-    let months = 1
+    // 只有显式「闭关 N 月/N 年」才给确定时长（代码权威）；「修炼/闭关」未写时长 → null（时间由 AI 叙事决定）
+    let months: number | null = null
     const mN = a.match(/闭关\s*(\d+)\s*(个月|月)?/)
     const mY = a.match(/闭关\s*(\d+)\s*年/)
     if (mY) months = Math.min(120, Number(mY[1]) * 12)
@@ -182,13 +183,14 @@ export function executeSystem(cmd: Command, state: GameState, storyLog?: LogEntr
     }
 
     case 'cultivate': {
-      const r = cultivate(state, cmd.months, cmd.closedDoor)
+      // 数值结算按默认 1 个月计（或显式闭关时长）；时间流逝由回合管线按叙事决定（显式闭关除外）
+      const r = cultivate(state, cmd.months ?? 1, cmd.closedDoor)
       const okOpts: { text: string; tag?: string }[] = [
         { text: cmd.closedDoor ? '继续闭关' : '继续修炼', tag: '平和' },
         { text: '突破', tag: '机缘' },
         { text: '洞府', tag: '平和' },
       ]
-      return { state: r.state, narrative: r.msg, options: CMD_OPTIONS(okOpts), scene: 'qingyu', timePassedMonths: cmd.months }
+      return { state: r.state, narrative: r.msg, options: CMD_OPTIONS(okOpts), scene: 'qingyu', timePassedMonths: cmd.months ?? 0 }
     }
 
     case 'breakthrough': {

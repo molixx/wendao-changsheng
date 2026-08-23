@@ -23,6 +23,8 @@ export interface LogEntry {
   action?: string
   /** 处理引擎：llm=AI 演绎 / code=代码模板 / offline=离线兜底 */
   engine?: 'llm' | 'code' | 'offline'
+  /** 本回合流逝月数（0=未流逝；供 UI 展示，便于核对时间来源） */
+  passedMonths?: number
 }
 
 export interface TurnInput {
@@ -370,25 +372,32 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       const codeNarrative = sys.narrative
       if (!useLlm) throw new Error('未配置叙事引擎：请到「叙事引擎设置」配置 API Key 后继续')
       const system = buildSystemPrompt(WORLD_BIBLE, buildWorldSnapshot(input.state))
+      let aiMonths = 0
       try {
         const narrated = await narrateSystem(settings, system, input.history, input.action, codeNarrative)
         narrative = narrated.narrative || codeNarrative
         options = sanitizeOptions(narrated.options)
         if (options.length === 0) options = sys.options
-        // 系统指令的时间流逝以代码结算为准（修炼 1 月/闭关 N 月/坊市 0 月等），
-        // AI 的 timePassedMonths 不覆盖——代码是唯一数值权威，杜绝模型惯性 +1
-        timePassedMonths = sys.timePassedMonths
+        aiMonths = typeof narrated.timePassedMonths === 'number' ? Math.max(0, Math.min(12, narrated.timePassedMonths)) : 0
         engine = 'llm'
       } catch (e) {
         // 真断网 → 离线冻结（抛给调用方停留+重试）；AI 业务失败（空内容/超时/服务错误）→ 系统指令回退代码结算叙事（数值一致，不编剧情）
         if (isOfflineError(e)) throw e
         narrative = codeNarrative
         options = sys.options
-        timePassedMonths = sys.timePassedMonths
         engine = 'code'
       }
       scene = sys.scene
       deltas = []
+      // 时间流逝：仅显式「闭关 N 月/N 年」用代码时长（唯一权威）；
+      // 其余系统指令（修炼/悟道/疗伤/炼丹…）一律由叙事决定——叙事短语推理优先，AI 声明 >1 才兜底，否则 0。
+      // 绝不按「每回合」固定 +1（这正是月份随回合数增长的老病根）
+      if (cmd.kind === 'cultivate' && typeof cmd.months === 'number') {
+        timePassedMonths = sys.timePassedMonths
+      } else {
+        const inferred = inferTimeFromNarrative(narrative)
+        timePassedMonths = inferred > 0 ? inferred : aiMonths > 1 ? aiMonths : 0
+      }
     } else {
       isFree = true
     }

@@ -34,6 +34,11 @@ function EntryCard({
         <span>{entry.time}</span>
         {entry.action && <span className="text-[color:var(--ink-muted)]/80">「{entry.action.slice(0, 24)}」</span>}
         <EngineTag engine={entry.engine} />
+        {typeof entry.passedMonths === 'number' && (
+          <span className={`rounded px-1.5 text-xs font-bold ${entry.passedMonths > 0 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'}`}>
+            {entry.passedMonths > 0 ? `⌛ 流逝 ${Number(entry.passedMonths.toFixed(1))} 月` : '⌛ 未流逝'}
+          </span>
+        )}
       </p>
       <p className="mt-1 whitespace-pre-wrap leading-relaxed">{narr}</p>
       {entry.deltas && entry.deltas.length > 0 && (
