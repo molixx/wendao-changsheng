@@ -358,6 +358,55 @@ export function applyAging(state: GameState, months: number): GameState {
   return { ...state, player: { ...state.player, age }, res, flags }
 }
 
+/** 中文数字（一~九十九/阿拉伯数字）转数值 */
+function cnToNum(s: string): number | null {
+  if (/^\d+$/.test(s)) return Number(s)
+  const digits: Record<string, number> = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 }
+  if (s === '十') return 10
+  if (s.length === 2 && s[0] === '十') return 10 + (digits[s[1]] ?? 0)
+  if (s.length === 2 && s[1] === '十') return (digits[s[0]] ?? 0) * 10
+  if (s.length === 3 && s[1] === '十') return (digits[s[0]] ?? 0) * 10 + (digits[s[2]] ?? 0)
+  return digits[s] ?? null
+}
+
+/** 时间口径：AI 返回 timePassedMonths 为主（返回多少推进多少）；AI 未返回/返回 0 时，
+ *  若叙事中明确提到时间流逝（一月/三月/半年/一年等数字短语）则兜底折算——防止 AI 叙事写了时间却忘返回 */
+function settleTime(aiMonths: number | undefined, narrative: string): number {
+  if (typeof aiMonths === 'number' && aiMonths > 0) return Math.max(0, Math.min(12, aiMonths))
+  if (!narrative) return 0
+  // 明确数字时间短语（排除：绝对纪年/时节/回溯，如「天玄历387年」「三月桃花」「三年前」）
+  const t = narrative
+    .replace(/天玄历\s*[一二三四五六七八九十百千万两\d]+\s*年/g, ' ')
+    .replace(/入道\s*第?[一二三四五六七八九十百千万两元\d]+\s*年/g, ' ')
+    .replace(/[\u4e00-\u9fa5]{1,4}元\s*年/g, ' ')
+    .replace(/[一二三四五六七八九十百千万两\d]+年[前以前]/g, ' ')
+  // 年：N年 → N×12（封顶 12）
+  for (const m of t.matchAll(/([一二三四五六七八九十两\d]+)\s*年/g)) {
+    const n = cnToNum(m[1])
+    if (n && n >= 1 && !/一度/.test(t)) return Math.min(12, n * 12)
+  }
+  // 半年/数月/半月/月余
+  if (/半年/.test(t)) return 6
+  if (/数月|几月/.test(t)) return 2.5
+  if (/半月/.test(t)) return 0.5
+  if (/月余/.test(t)) return 1.2
+  // 裸「N月」歧义大（三月桃花=时节）：只认带「个」的（三个月）或前有行为词/后有流逝词的
+  const DUR_BEFORE = /(闭关|苦修|修炼|打坐|参悟|悟道|疗伤|养伤|赶路|游历|历练|云游|静养|守候|等待|滞留|炼丹|炼器|外出|跋涉|整整|足足|一晃|转眼)/
+  const DUR_AFTER = /(后|之后|过去|光景|之久|流逝|倏忽|弹指|眨眼)/
+  for (const m of t.matchAll(/([一二三四五六七八九十两\d]+)\s*(?:个)?月/g)) {
+    const n = cnToNum(m[1])
+    if (!n || n < 1 || n > 12) continue
+    const bare = !m[0].includes('个')
+    if (bare) {
+      const before = t.slice(Math.max(0, m.index! - 2), m.index!)
+      const after = t.slice(m.index! + m[0].length, m.index! + m[0].length + 2)
+      if (!DUR_BEFORE.test(before) && !DUR_AFTER.test(after)) continue
+    }
+    return n
+  }
+  return 0
+}
+
 /** 主入口：执行一个回合（LLM 失败即抛出，由调用方停留+重试，绝不生成替代内容） */
 export async function resolveTurn(input: TurnInput, settings: NarratorSettings): Promise<TurnOutput> {
   const cmd = routeCommand(input.action)
@@ -388,8 +437,8 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
         summary = narrated.summary
         options = sanitizeOptions(narrated.options)
         if (options.length === 0) options = sys.options
-        // AI 返回的时间就是时间：返回多少推进多少；未返回 → 0（不流逝）
-        timePassedMonths = typeof narrated.timePassedMonths === 'number' ? Math.max(0, Math.min(12, narrated.timePassedMonths)) : 0
+        // 时间口径：AI 返回为主；AI 未给/给 0 但叙事提到明确时长 → 兜底折算
+        timePassedMonths = settleTime(narrated.timePassedMonths, narrative)
         // 系统指令数值已由代码结算；AI deltas 只采纳状态类字段（伤势/异常/心境），防止双加
         rawDeltas = narrated.deltas
         const applied = applyDeltas(nextState, narrated.deltas, 'status')
@@ -426,8 +475,8 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       const applied = applyDeltas(nextState, result.deltas)
       nextState = applied.state
       deltas = applied.applied
-      // 时间唯一来源：AI 返回的 timePassedMonths（返回多少推进多少）；未返回 → 0（不流逝）
-      timePassedMonths = typeof result.timePassedMonths === 'number' ? Math.max(0, Math.min(12, result.timePassedMonths)) : 0
+      // 时间口径：AI 返回为主；AI 未给/给 0 但叙事提到明确时长 → 兜底折算
+      timePassedMonths = settleTime(result.timePassedMonths, result.narrative)
       engine = 'llm'
     } catch (e) {
       // 真断网 → 冻结（抛给调用方停留+重试）；业务失败（多次重试仍空白/报错）→ 最小化续行，保证游戏可继续
