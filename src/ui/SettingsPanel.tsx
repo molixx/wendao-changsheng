@@ -7,6 +7,13 @@ import { testConnection, type ConnTestResult } from '../game/narrator/llm'
 import { queryBalance, clearBalanceCache, isLowBalance, type BalanceResult } from '../game/narrator/balance'
 import { Panel } from './Panel'
 
+/** 清除本游戏全部本地数据（设置/现场进度/手动存档/自动存档/快照/余额缓存） */
+function clearAllLocalData(): boolean {
+  const keys = Object.keys(localStorage).filter((k) => k === 'wendao-changsheng' || k.startsWith('wdcd.'))
+  keys.forEach((k) => localStorage.removeItem(k))
+  return keys.length > 0
+}
+
 export function SettingsPanel() {
   const { settings, setSettings, toScreen } = useGame()
   const [form, setForm] = useState(settings)
@@ -128,6 +135,20 @@ export function SettingsPanel() {
             </button>
             <button onClick={() => toScreen('title')} className="rounded-xl border border-[color:var(--ink-muted)]/40 px-4 py-2.5 text-sm">
               返回
+            </button>
+          </div>
+
+          {/* 清除全部本地数据（危险区） */}
+          <div className="mt-2 border-t border-[color:var(--ink-muted)]/30 pt-4">
+            <button
+              onClick={() => {
+                if (!window.confirm('确定清除全部本地数据？\n\n将删除：叙事引擎设置（API Key）、现场进度、全部手动存档、自动存档与快照，且不可恢复。\n\n确认后请刷新页面。')) return
+                const cleared = clearAllLocalData()
+                window.alert(cleared ? '已清除全部本地数据，请刷新页面（F5）以全新状态开始。' : '没有发现本地数据。')
+              }}
+              className="w-full rounded-xl border border-red-600/60 px-4 py-2.5 text-sm font-bold text-red-600 hover:bg-red-600/10"
+            >
+              ⚠ 清除全部本地数据（存档 / 进度 / API Key）
             </button>
           </div>
         </div>
