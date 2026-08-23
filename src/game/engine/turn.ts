@@ -253,99 +253,8 @@ export function applyDeltas(state: GameState, deltas?: Record<string, unknown>):
   return applied.length ? { state: s, applied } : { state, applied: [] }
 }
 
-/** 中文数字（一~九十九/阿拉伯数字）转数值 */
-function cnToNum(s: string): number | null {
-  if (/^\d+$/.test(s)) return Number(s)
-  const digits: Record<string, number> = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 }
-  if (s === '十') return 10
-  if (s.length === 2 && s[0] === '十') return 10 + (digits[s[1]] ?? 0)
-  if (s.length === 2 && s[1] === '十') return (digits[s[0]] ?? 0) * 10
-  if (s.length === 3 && s[1] === '十') return (digits[s[0]] ?? 0) * 10 + (digits[s[2]] ?? 0)
-  return digits[s] ?? null
-}
-
-/** 从 AI 叙事中推断流逝月数：AI 叙述提到「几日/数日/半月/旬/数月/月余/半年/一年」等时间表述时，
- *  自动折算成小额月数（小数月会跨回合累积，见 applyAging）。多表述并存时取最大（避免重复计数）。
- *  绝对纪年（天玄历 N 年 / 入道 N 年 / 境界 N 年 / N 年一度）与回溯锚点（三年前/半月前）不计入。 */
-export function inferTimeFromNarrative(narrative: string): number {
-  if (!narrative) return 0
-  // 先掩蔽绝对纪年/时间行（叙事开头必带，属当前时刻而非流逝）：
-  // 天玄历 387 年 / 天玄历三百八十八年、入道三年 · 五月 / 入道第三年 · 五月、筑基元年 · 冬、炼气五年等。
-  // 中文数字纪年必须覆盖（百/千/十/两），否则「三百八十八年」会被当成流逝 388 年 → 封顶 12 个月
-  const CN_YEAR_NUM = '[一二三四五六七八九十百千万两\\d]+'
-  const t = narrative
-    .replace(new RegExp(`天玄历\\s*${CN_YEAR_NUM}\\s*年`, 'g'), '天玄历N年')
-    .replace(new RegExp(`入道\\s*第?\\s*[元一二三四五六七八九十百千万两\\d]+\\s*年\\s*[·,，]?\\s*[一二三四五六七八九十两\\d]+\\s*月`, 'g'), '入道N年N月')
-    .replace(new RegExp(`入道\\s*第?\\s*[元一二三四五六七八九十百千万两\\d]+\\s*年`, 'g'), '入道N年')
-    .replace(/第\s*[一二三四五六七八九十百千万两\d]+\s*年/g, '第N年')
-    .replace(/[\u4e00-\u9fa5]{1,4}元\s*年/g, 'X元年')
-    // 仅掩蔽「境界名 + N年」的状态表述（炼气五年 = 当前境界年限，非流逝）；
-    // 「闭关十年」「苦修五年」等行为性表述保留（是真实流逝）
-    .replace(/(炼气|练气|筑基|结晶|金丹|具灵|元婴|化神|悟道|羽化|登仙)\s*[一二三四五六七八九十百千万两\d]+\s*年/g, 'X境界年')
-  const candidates: number[] = []
-  /** 跳过回溯锚点：表述后紧跟「前」字（三年前/半月前/一月之前…） */
-  const isFlashback = (endIdx: number) => {
-    const after = t.slice(endIdx, endIdx + 2)
-    return after.includes('前')
-  }
-  // 年/载：N年 → N×12（N=1~12）；「N年一度」为频率表述（升仙大会五年一度）不计入
-  for (const m of t.matchAll(/([一二三四五六七八九十两\d]+)\s*(?:年|载)(?!一度|一次|一回)/g)) {
-    if (isFlashback(m.index! + m[0].length)) continue
-    const n = cnToNum(m[1])
-    if (n && n >= 1) candidates.push(Math.min(12, n * 12))
-  }
-  // 月：半年=6、半月=0.5、月余≈1.2、数月≈2.5、N月/N个月=N（1~12）
-  const pushPhrase = (re: RegExp, v: number) => {
-    for (const m of t.matchAll(re)) {
-      if (isFlashback(m.index! + m[0].length)) continue
-      candidates.push(v)
-      break // 同一短语只计一次
-    }
-  }
-  pushPhrase(/半年/g, 6)
-  pushPhrase(/半月/g, 0.5)
-  pushPhrase(/月余|月许|一月有余/g, 1.2)
-  pushPhrase(/数月|几月|几个月/g, 2.5)
-  // 裸「N月」有歧义：「五月端午」「三月桃花」是时节，「闭关三月」「三月后」才是流逝。
-  // 策略：带「个」的「N个月」一定流逝；裸「N月」仅当前有行为/流逝语境词才算（否则视为时节不计）
-  const DURATION_BEFORE = /(闭关|苦修|修炼|打坐|参悟|悟道|疗伤|养伤|赶路|游历|历练|云游|静养|守候|等待|滞留|炼丹|炼器|外出|跋涉|耗费|耗时|整整|足足|一晃|转眼)/
-  const DURATION_AFTER = /(后|之后|过去|光景|之久|流逝|倏忽|弹指|眨眼)/
-  for (const m of t.matchAll(/([一二三四五六七八九十两\d]+)\s*(?:个)?月/g)) {
-    if (isFlashback(m.index! + m[0].length)) continue
-    const n = cnToNum(m[1])
-    if (!n || n < 1 || n > 12) continue
-    const bare = !m[0].includes('个') // 裸 N月：无「个」字
-    if (bare) {
-      const before = t.slice(Math.max(0, m.index! - 2), m.index!)
-      const after = t.slice(m.index! + m[0].length, m.index! + m[0].length + 2)
-      if (!DURATION_BEFORE.test(before) && !DURATION_AFTER.test(after)) continue // 时节（三月桃花）不计
-    }
-    candidates.push(n)
-  }
-  // 日/天/旬：旬≈1/3、N日/N天≈N/30（封顶1）、数日/几日/几天≈0.3
-  pushPhrase(/旬|十来天/g, 1 / 3)
-  pushPhrase(/数日|几日|几天|数天|些许时日/g, 0.3)
-  for (const m of t.matchAll(/([一二三四五六七八九十两\d]+)\s*(?:日|天)/g)) {
-    if (isFlashback(m.index! + m[0].length)) continue
-    const n = cnToNum(m[1])
-    if (n && n >= 1) candidates.push(Math.min(1, n / 30))
-  }
-  if (candidates.length === 0) return 0
-  return Math.min(12, Math.max(...candidates))
-}
-
-/** 模糊时间迹象：叙事未写明确数字、但暗示时间流逝（许久/多日/光阴荏苒/春去秋来…）。
- *  有迹象时采信 AI 月数（AI 是语义权威）；无任何迹象时 AI 给的月数一律作废归 0（挡模型惯性 +1/+12） */
-const VAGUE_TIME_RE =
-  /许久|良久|多日|一段时|一段岁月|不知岁月|光阴荏苒|时光飞|岁月流|日月如梭|转瞬|倏忽|日久|些时日|不少时|时光匆匆|弹指|眨眼|寒来暑往|冬去春来|春去秋来/
-
-/** 时间仲裁（统一口径）：① 明确数字短语 → 叙事折算（文本铁证）；② 模糊迹象 → 信 AI（AI 未给按 1 月）；③ 无迹象 → 0 */
-function settleTime(narrative: string, aiMonths: number): number {
-  const inferred = inferTimeFromNarrative(narrative)
-  if (inferred > 0) return inferred
-  if (VAGUE_TIME_RE.test(narrative)) return aiMonths > 0 ? aiMonths : 1
-  return 0
-}
+/** 时间口径（用户定案）：时间唯一来源是 AI 返回的 timePassedMonths——返回多少推进多少（钳制 0~12）；
+ *  未返回/返回 0 → 本回合不流逝。代码不再解析叙事、不再仲裁，一切听 AI。 */
 
 /** 寿元对账：剩余寿元 = min(当前, 寿元上限 - 年龄)（修复旧档/创角期满寿元的偏差） */
 export function reconcileLifespan(state: GameState): GameState {
@@ -383,7 +292,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
   let narrative = ''
   let options: { text: string; tag?: string }[] = []
   let scene: SceneThemeKey | undefined
-  // 时间流逝默认 0：只有明确的时间流逝（代码结算 / 叙事推理 / 叙事短语）才会推进，绝不默认 +1
+  // 时间唯一来源：AI 返回的 timePassedMonths（返回多少推进多少）；AI 未给/失败 → 不流逝
   let timePassedMonths = 0
   let deltas: string[] = []
   let engine: TurnOutput['engine'] = 'code'
@@ -396,30 +305,24 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       const codeNarrative = sys.narrative
       if (!useLlm) throw new Error('未配置叙事引擎：请到「叙事引擎设置」配置 API Key 后继续')
       const system = buildSystemPrompt(WORLD_BIBLE, buildWorldSnapshot(input.state) + buildStoryAnchor(input.log))
-      let aiMonths = 0
       try {
         const narrated = await narrateSystem(settings, system, input.history, input.action, codeNarrative)
         narrative = narrated.narrative || codeNarrative
         options = sanitizeOptions(narrated.options)
         if (options.length === 0) options = sys.options
-        aiMonths = typeof narrated.timePassedMonths === 'number' ? Math.max(0, Math.min(12, narrated.timePassedMonths)) : 0
+        // AI 返回的时间就是时间：返回多少推进多少；未返回 → 0（不流逝）
+        timePassedMonths = typeof narrated.timePassedMonths === 'number' ? Math.max(0, Math.min(12, narrated.timePassedMonths)) : 0
         engine = 'llm'
       } catch (e) {
         // 真断网 → 离线冻结（抛给调用方停留+重试）；AI 业务失败（空内容/超时/服务错误）→ 系统指令回退代码结算叙事（数值一致，不编剧情）
         if (isOfflineError(e)) throw e
         narrative = codeNarrative
         options = sys.options
+        timePassedMonths = 0
         engine = 'code'
       }
       scene = sys.scene
       deltas = []
-      // 时间仲裁：仅显式「闭关 N 月/N 年」用代码时长；其余系统指令由 AI 叙事决定——
-      // 明确短语折算 / 模糊迹象信 AI / 无迹象归 0（绝不每回合 +1）
-      if (cmd.kind === 'cultivate' && typeof cmd.months === 'number') {
-        timePassedMonths = sys.timePassedMonths
-      } else {
-        timePassedMonths = settleTime(narrative, aiMonths)
-      }
     } else {
       isFree = true
     }
@@ -439,12 +342,8 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       const applied = applyDeltas(nextState, result.deltas)
       nextState = applied.state
       deltas = applied.applied
-      // 时间仲裁（AI 是语义权威，代码只守一条铁律）：
-      // ① 叙事有明确数字时间短语（数日/半月/三月/一年…）→ 按叙事折算（文本是铁证）；
-      // ② 叙事只有模糊时间迹象（许久/多日/光阴荏苒…）→ 采信 AI 月数（AI 未给按 1 月）；
-      // ③ 叙事完全没有时间迹象 → 0（AI 惯性给的 1/12 一律作废，绝不每回合 +1）
-      const aiMonths = typeof result.timePassedMonths === 'number' ? Math.max(0, Math.min(12, result.timePassedMonths)) : 0
-      timePassedMonths = settleTime(result.narrative, aiMonths)
+      // 时间唯一来源：AI 返回的 timePassedMonths（返回多少推进多少）；未返回 → 0（不流逝）
+      timePassedMonths = typeof result.timePassedMonths === 'number' ? Math.max(0, Math.min(12, result.timePassedMonths)) : 0
       engine = 'llm'
     } catch (e) {
       // 真断网 → 冻结（抛给调用方停留+重试）；业务失败（多次重试仍空白/报错）→ 最小化续行，保证游戏可继续
@@ -454,7 +353,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
         { text: '重试演绎', tag: '平和' },
         { text: '回到主剧情', tag: '平和' },
       ]
-      // 失败续行回合不流逝时间（叙事未展开，无时间流逝依据）
+      // 失败续行回合不流逝时间
       timePassedMonths = 0
       engine = 'code'
     }
