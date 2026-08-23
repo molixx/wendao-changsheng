@@ -52,9 +52,8 @@ function EntryCard({
                 key={i}
                 disabled={busy}
                 onClick={() => onPick?.(opt.text)}
-                className="text-left flex items-start gap-2 rounded-lg border border-[color:var(--theme-color)]/40 bg-white/90 px-3 py-2 hover:bg-white disabled:opacity-50 transition-colors"
+                className="text-left flex items-center gap-2 rounded-lg border border-[color:var(--theme-color)]/40 bg-white/90 px-3 py-2 hover:bg-white disabled:opacity-50 transition-colors"
               >
-                <span className="opt-btn">{String.fromCharCode(65 + i)}</span>
                 {opt.tag && <Tag text={opt.tag} />}
                 <span className="flex-1">
                   {opt.text}
@@ -64,9 +63,8 @@ function EntryCard({
             ) : (
               <div
                 key={i}
-                className="flex items-start gap-2 rounded-lg border border-[color:var(--ink-muted)]/25 bg-white/50 px-3 py-2 opacity-60"
+                className="flex items-center gap-2 rounded-lg border border-[color:var(--ink-muted)]/25 bg-white/50 px-3 py-2 opacity-60"
               >
-                <span className="opt-btn" style={{ background: 'var(--ink-muted)' }}>{String.fromCharCode(65 + i)}</span>
                 {opt.tag && <Tag text={opt.tag} />}
                 <span className="flex-1">
                   {opt.text}

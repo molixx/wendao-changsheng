@@ -113,27 +113,18 @@ body {
   line-height: 1.6;
 }
 
-/* ⑤ 选项钮 + 语义标签 */
-.opt-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--theme-color);
-  color: #ffffff;
-  font-weight: 700;
-  min-width: 1.7em;
-  padding: 0.05em 0.45em;
-  border-radius: 0.35em;
-}
+/* ⑤ 语义标签 */
 .tag {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   color: #ffffff;
   font-weight: 700;
   font-size: 0.78em;
   padding: 0 0.5em;
   border-radius: 0.35em;
   line-height: 1.7;
+  flex-shrink: 0;
 }
 .tag--pinghe { background: #6FA698; }
 .tag--jiyuan { background: #A98FD9; }
