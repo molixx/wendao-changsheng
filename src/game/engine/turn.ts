@@ -63,7 +63,7 @@ export function buildWorldSnapshot(state: GameState): string {
     `灵石${r.spirit} 功德${r.merit} 业力${r.karma}${r.injury ? ` 受伤:${r.injury}` : ''}`,
     `所在地 ${state.flags.location ?? '东洲·青岳'} · 时节${t.month}月 · 主线：${state.mainQuest || '无'}`,
     `功法：${state.gongfaIds.join('、') || '无'} 技艺：${Object.entries(state.techniqueLevels).map(([k, v]) => `${k}${v}`).join('、') || '无'}`,
-    `关系：${Object.entries(state.relationships).map(([k, v]) => `${k}:${v}`).join('、') || '无'}`,
+    `关系：${Object.entries(state.relationships).map(([k, v]) => `${NPCS.find((n) => n.id === k)?.name ?? k}:${v}`).join('、') || '无'}`,
   ].join('\n')
 }
 

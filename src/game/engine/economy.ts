@@ -143,6 +143,12 @@ export function marketList(): MarketItem[] {
   }))
 }
 
+/** 物品 id → 中文名（背包存的是 id，展示时映射回中文；未识别原样返回） */
+export function itemNameOf(id: string): string {
+  const hit = marketList().find((i) => i.id === id)
+  return hit?.name ?? id
+}
+
 /** 坊市购买：扣灵石、进背包；灵石不足返回 ok:false */
 export function marketBuy(
   state: GameState,

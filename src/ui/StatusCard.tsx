@@ -6,6 +6,8 @@ import { Panel, Bar, Chip, GoldLine } from './Panel'
 import { VALUE_COLORS, ELEMENT_COLORS } from './theme'
 import { GONGFAS, TECHNIQUES, FATE_CHANGES, INJURIES } from '../game/data/systems'
 import { ORIGINS, TALENTS, PHYSIQUES, DAO_PATHS, SPIRIT_ROOTS } from '../game/data/creation'
+import { NPCS } from '../game/data/world'
+import { itemNameOf } from '../game/engine/economy'
 
 interface Props {
   game: GameState
@@ -39,10 +41,10 @@ export function StatusCard({ game, spiritRootElements = [], location = '未知' 
     .map(([k, lv]) => `${k.replace(/（.*）/, '')}${lv}级`)
     .join('、')
   const bag = Object.entries(game.bag)
-    .map(([k, v]) => `${k}×${v}`)
+    .map(([k, v]) => `${itemNameOf(k)}×${v}`)
     .join('、')
   const rels = Object.entries(game.relationships)
-    .map(([k, v]) => `${k} ${v}`)
+    .map(([k, v]) => `${NPCS.find((n) => n.id === k)?.name ?? k} ${v}`)
     .join('、')
 
   // 动态状态（flags）
