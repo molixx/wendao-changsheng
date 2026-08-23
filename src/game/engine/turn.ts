@@ -441,9 +441,15 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
 
   // 叙事兜底：任何路径都不允许空白叙事（否则会污染后续 LLM 历史）
   if (!narrative || !narrative.trim()) narrative = '天道静默不语，只是静静注视着你。'
-  // 摘要兜底：AI 未返回时用叙事首句（截 60 字）
+  // 摘要兜底：AI 未返回 summary 时，系统指令回合用「行动+时间流逝」拼简述（有结算信息，最贴近事件概述）；
+  // 自由行动用叙事首句（截 60 字）
   if (!summary || !summary.trim()) {
-    summary = narrative.replace(/\n+/g, ' ').trim().slice(0, 60)
+    if (!isFree) {
+      const passed = timePassedMonths > 0 ? `，历时${Number(timePassedMonths.toFixed(1))}月` : ''
+      summary = `${input.action.trim().slice(0, 20)}${passed}`
+    } else {
+      summary = narrative.replace(/\n+/g, ' ').trim().slice(0, 60)
+    }
   }
 
   // 时间推进（代码权威；战斗回合不流逝时间）。小数月（如「数日」折算的 0.3）跨回合累积在
