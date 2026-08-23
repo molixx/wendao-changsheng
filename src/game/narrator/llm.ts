@@ -16,6 +16,29 @@ export interface NarratorTurn {
   deltas?: Record<string, number>
 }
 
+/** 是否含 LaTeX/Markup 特征（需要清洗） */
+export function hasLatexMarkup(text: string): boolean {
+  return /\\fcolorbox|\\textcolor|\\colorbox|\\begin\{array\}|\\\(|\\\[|\\texttt|\\textbf|\\textit|#[0-9A-Fa-f]{6}/.test(text)
+}
+
+/** 剥离 LaTeX 命令壳、保留语义文字：
+ *  \textcolor{色}{内容} / \colorbox{底}{内容} / \fcolorbox{边}{底}{内容} → 内容
+ *  \begin{array}...\end{array} → 内部（\\ 变换行）；\(...\)、{#HEX} → 剥除 */
+export function sanitizeNarrative(text: string): string {
+  if (!text) return ''
+  let t = text
+  t = t.replace(/\\\(/g, '').replace(/\\\)/g, '').replace(/\\\[/g, '').replace(/\\\]/g, '')
+  t = t.replace(/\\begin\{array\}\{[^}]*\}/g, '').replace(/\\end\{array\}/g, '')
+  t = t.replace(/\\\\/g, '\n')
+  t = t.replace(/\{#(?:[0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})\}/g, '')
+  // 去掉所有 \命令（含 \quad \textcolor 等），保留 {内容}
+  t = t.replace(/\\(?:[a-zA-Z]+|.)/g, '')
+  // 去掉残留的花括号
+  t = t.replace(/[{}]/g, '')
+  t = t.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
+  return t
+}
+
 /** 选项基本卫生：去空 / 去重 / 限 3~5 个（长度不限，AI 全生成） */
 export function sanitizeOptions(list: { text?: string; tag?: string }[] | undefined): { text: string; tag?: string }[] {
   if (!list) return []
@@ -46,13 +69,13 @@ ${worldSnapshot}
 【输出协议】
 你每回合必须且只能输出一个 JSON 对象（不要输出任何 JSON 之外的内容），格式：
 {
-  "narrative": "剧情推进，1~3 句，符合修仙文风",
+  "narrative": "剧情推进，1~3 句，符合修仙文风；必须是纯中文文字",
   "options": [ {"text": "选项文字（长度不限，一句话行动）", "tag": "平和|机缘|风险|情缘|魔道"} × 3~5 ],
   "timePassedMonths": 1,
   "scene": "qingyu|xuanzi|zhusha|taofen|ziqi|liujin|tianqing|zhuqing",
   "deltas": {}
 }
-铁律：只推进 1 个事件节点；不替玩家决定重大事件（只以选项呈现）；数值变动以 deltas 给出但最终由系统结算；玩家可自由输入任意行动，你必须在世界逻辑内响应；真实修仙界会死、不暗中放水。`
+铁律：narrative 禁止输出任何 LaTeX / Markdown / HTML 标记（\fcolorbox、\textcolor、\colorbox、\begin{array}、\(...\)、#FFFFFF、代码块、加粗星号等一律禁止），界面由前端渲染，你只负责纯文字叙事；只推进 1 个事件节点；不替玩家决定重大事件（只以选项呈现）；数值变动以 deltas 给出但最终由系统结算；玩家可自由输入任意行动，你必须在世界逻辑内响应；真实修仙界会死、不暗中放水。`
 }
 
 /** 连接测试结果 */
@@ -160,11 +183,12 @@ export async function narrateSystem(
   const content = await fetchContent(settings, body)
   try {
     const parsed = JSON.parse(content) as NarratorTurn
-    const narrative = typeof parsed.narrative === 'string' ? parsed.narrative.trim() : ''
+    const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
+    const narrative = sanitizeNarrative(rawNarrative)
     return { narrative, options: sanitizeOptions(parsed.options) }
   } catch {
     // 内容非 JSON：若可读则当纯文本叙事（系统指令侧由调用方回退模板叙事）
-    return { narrative: content.trim() ? content.slice(0, 300) : '', options: [] }
+    return { narrative: content.trim() ? sanitizeNarrative(content).slice(0, 300) : '', options: [] }
   }
 }
 
@@ -194,13 +218,16 @@ export async function callNarrator(
   const content = await fetchContent(settings, body)
   try {
     const parsed = JSON.parse(content) as NarratorTurn
-    const narrative = typeof parsed.narrative === 'string' ? parsed.narrative.trim() : ''
-    if (!narrative) throw new Error('LLM 返回的 narrative 为空')
+    const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
+    const narrative = sanitizeNarrative(rawNarrative)
+    if (!narrative) {
+      throw new Error(hasLatexMarkup(rawNarrative) ? 'LLM 返回 LaTeX 且清洗后无可用文本' : 'LLM 返回的 narrative 为空')
+    }
     return { ...parsed, narrative, options: sanitizeOptions(parsed.options) }
   } catch (e) {
     if (e instanceof SyntaxError) {
       // 兜底：内容不是合法 JSON 时退化为纯文本回合
-      return { narrative: content.trim().slice(0, 200), options: [], timePassedMonths: 1 }
+      return { narrative: sanitizeNarrative(content).slice(0, 200), options: [], timePassedMonths: 1 }
     }
     throw e
   }

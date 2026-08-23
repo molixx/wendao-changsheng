@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useGame } from '../game/store'
 import type { LogEntry } from '../game/engine/turn'
+import { hasLatexMarkup, sanitizeNarrative } from '../game/narrator/llm'
 import { GoldLine, Tag } from './Panel'
 
 function EngineTag({ engine }: { engine?: LogEntry['engine'] }) {
@@ -26,6 +27,7 @@ function EntryCard({
   onPick?: (text: string) => void
   onFreeAction?: () => void
 }) {
+  const narr = hasLatexMarkup(entry.narrative) ? sanitizeNarrative(entry.narrative) : entry.narrative
   return (
     <article className="panel shrink-0 px-4 py-3">
       <p className="cmdline flex items-center gap-2">
@@ -33,7 +35,7 @@ function EntryCard({
         {entry.action && <span className="text-[color:var(--ink-muted)]/80">「{entry.action.slice(0, 24)}」</span>}
         <EngineTag engine={entry.engine} />
       </p>
-      <p className="mt-1 whitespace-pre-wrap leading-relaxed">{entry.narrative}</p>
+      <p className="mt-1 whitespace-pre-wrap leading-relaxed">{narr}</p>
       {entry.deltas && entry.deltas.length > 0 && (
         <p className="cmdline mt-1">【数值变化】{entry.deltas.join(' · ')}</p>
       )}
