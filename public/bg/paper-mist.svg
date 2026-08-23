@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <defs>
+  <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#F7F3EA"/>
+    <stop offset="100%" stop-color="#EDE5D4"/>
+  </linearGradient>
+  <filter id="blurS"><feGaussianBlur stdDeviation="5"/></filter>
+  <filter id="blurM"><feGaussianBlur stdDeviation="14"/></filter>
+  <filter id="blurL"><feGaussianBlur stdDeviation="28"/></filter>
+  <filter id="glow"><feGaussianBlur stdDeviation="8" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+  <rect width="1600" height="1000" fill="url(#sky)"/>
+  
+  <g opacity="0.16" filter="url(#blurL)"><path d="M 0 1000 L 0 640 L 0 562.1875801170245 L 228.57142857142858 559.5347692864016 L 457.14285714285717 589.0088743623346 L 685.7142857142857 571.1704926937819 L 914.2857142857143 554.1923786466941 L 1142.857142857143 479.4419641327113 L 1371.4285714285713 483.38489298243076 L 1600 577.7560188155621 L 1600 1000 Z" fill="#7D7568"/></g>
+  <g opacity="0.24" filter="url(#blurM)"><path d="M 0 1000 L 0 760 L 0 653.7174138613045 L 228.57142857142858 573.6822957731783 L 457.14285714285717 714.6738753467798 L 685.7142857142857 678.3500902168453 L 914.2857142857143 612.819196190685 L 1142.857142857143 678.3810516819358 L 1371.4285714285713 736.7324275523424 L 1600 540.1461241021752 L 1600 1000 Z" fill="#7D7568"/></g>
+  <g opacity="0.6" filter="url(#blurM)"><ellipse cx="522.4927343986928" cy="453.2789211589843" rx="241.84718205826357" ry="65.59238060563803" fill="#ffffff"/><ellipse cx="388.6288955314085" cy="433.57646536268294" rx="337.1103979391046" ry="51.52166405227035" fill="#ffffff"/><ellipse cx="569.8839840935543" cy="451.92623604647815" rx="436.6188829531893" ry="71.35831521637738" fill="#ffffff"/></g>
+  <g opacity="0.55" filter="url(#blurM)"><ellipse cx="1080.3681356627494" cy="589.9571582721546" rx="290.1637723739259" ry="49.34466979000718" fill="#ffffff"/><ellipse cx="1251.2528293998912" cy="595.5176409613341" rx="291.61223417613655" ry="67.8183797840029" fill="#ffffff"/><ellipse cx="1230.9670737348497" cy="615.2008645283058" rx="276.0260239918716" ry="65.94277792144567" fill="#ffffff"/><ellipse cx="1359.30989937298" cy="617.6886469172314" rx="344.4937669392675" ry="43.83289746241644" fill="#ffffff"/></g>
+  <rect x="0" y="880" width="1600" height="120" fill="#FBF8F1" opacity="0.95"/>
+
+</svg>

@@ -1,0 +1,183 @@
+@import "tailwindcss";
+
+/* ── 《问道长生》宣纸设计系统 · 设计令牌（原文 4.5 配色体系 100% 照搬） ── */
+:root {
+  /* 底色 */
+  --paper: #FBF8F1;
+  --paper-warn: #FBEDE9;
+  --paper-mystic: #F5EFF9;
+  --paper-love: #FAEFF3;
+  --bar-track: #E8E4DC;
+
+  /* 文字色 */
+  --ink: #3F3A34;
+  --ink-muted: #8C8578;
+  --ink-strong: #2B2620;
+  --gold: #C9A45C;
+
+  /* 数值色 */
+  --val-hp: #C05F55;
+  --val-mp: #5E8FAE;
+  --val-cult: #A87E2E;
+  --val-life: #5C8C6E;
+  --val-spirit: #A87E2E;
+  --val-merit: #6BA38E;
+  --val-karma: #8E8578;
+  --val-affinity: #D88FA5;
+
+  /* 五行色 */
+  --el-metal: #C9A45C;
+  --el-wood: #6BA38E;
+  --el-water: #5E8FAE;
+  --el-fire: #C05F55;
+  --el-earth: #B08A4E;
+  --el-thunder: #8B6FA8;
+  --el-wind: #7F9C9C;
+  --el-ice: #7FA8C9;
+
+  /* 场景主题色（当前面板用，运行时由组件设置） */
+  --theme-color: #6FA698;
+}
+
+html, body, #root {
+  min-height: 100%;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Songti SC", "STSong", "Noto Serif SC", "Source Han Serif SC", serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── 组件库（对应原文 4.6） ── */
+
+/* ① 大面板：fcolorbox → 主题色边框 + 宣纸白底 */
+.panel {
+  background: var(--paper);
+  border: 2px solid var(--theme-color);
+  border-radius: 0.9rem;
+  box-shadow: 0 4px 18px rgba(43, 38, 32, 0.07);
+  overflow: hidden;
+}
+.panel--warn { background: var(--paper-warn); }
+.panel--mystic { background: var(--paper-mystic); }
+.panel--love { background: var(--paper-love); }
+
+/* 标题条：colorbox 主题色底 + 白字 */
+.panel-title {
+  display: block;
+  background: var(--theme-color);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: 0.15em;
+  padding: 0.55rem 1rem;
+}
+
+/* ② 鎏金分隔线 */
+.gold-line {
+  border: none;
+  border-top: 1px solid var(--gold);
+  margin: 0.5rem 0;
+  opacity: 0.85;
+}
+
+/* ③ 双段进度条：rule 实心段 + 浅灰剩余段 */
+.bar {
+  display: inline-flex;
+  height: 1.1ex;
+  min-width: 2em;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--bar-track);
+  vertical-align: middle;
+}
+.bar > span {
+  display: block;
+  height: 100%;
+  background: var(--bar-color, var(--val-cult));
+  transition: width 0.4s ease;
+}
+
+/* ④ 五行色块：colorbox 小方块 */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.85em;
+  padding: 0 0.45em;
+  border-radius: 0.3em;
+  line-height: 1.6;
+}
+
+/* ⑤ 选项钮 + 语义标签 */
+.opt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--theme-color);
+  color: #ffffff;
+  font-weight: 700;
+  min-width: 1.7em;
+  padding: 0.05em 0.45em;
+  border-radius: 0.35em;
+}
+.tag {
+  display: inline-flex;
+  align-items: center;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.78em;
+  padding: 0 0.5em;
+  border-radius: 0.35em;
+  line-height: 1.7;
+}
+.tag--pinghe { background: #6FA698; }
+.tag--jiyuan { background: #A98FD9; }
+.tag--fengxian { background: #C05F55; }
+.tag--qingyuan { background: #D88FA5; }
+.tag--modao { background: #8B6FA8; }
+
+/* 指令行 */
+.cmdline {
+  color: var(--ink-muted);
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+}
+
+/* 危险提示行 */
+.danger-line {
+  color: var(--val-hp);
+  font-weight: 700;
+}
+
+/* ── 场景背景层 ── */
+.bg-layer {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-size: cover;
+  background-position: center bottom;
+  animation: bg-fade 0.9s ease;
+  pointer-events: none;
+}
+@keyframes bg-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ── 背景可读性：给未带实色底的按钮/输入框补一层宣纸白，避免在背景图上看不清 ──
+   排除条件：类名中存在独立的 bg-* 标记（如 bg-white/90、bg-[color:...]）；
+   hover:bg-* 这类不算实色底，仍会补白底 */
+button:not([class^="bg-"]):not([class*=" bg-"]),
+input:not([class^="bg-"]):not([class*=" bg-"]),
+select:not([class^="bg-"]):not([class*=" bg-"]) {
+  background-color: rgba(251, 248, 241, 0.94);
+}
+button:not([class^="bg-"]):not([class*=" bg-"]):hover,
+select:not([class^="bg-"]):not([class*=" bg-"]):hover {
+  background-color: #ffffff;
+}

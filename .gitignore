@@ -1,0 +1,15 @@
+# 依赖与构建产物
+node_modules/
+dist/
+.npm-cache/
+
+# 系统与编辑器
+.DS_Store
+*.log
+*.local
+.vscode/
+.idea/
+
+# 临时脚本
+scripts/tmp-*.mjs
+scripts/dbg*.ts

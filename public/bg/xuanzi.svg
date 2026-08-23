@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <defs>
+  <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#EFEAF4"/>
+    <stop offset="100%" stop-color="#DDD3EA"/>
+  </linearGradient>
+  <filter id="blurS"><feGaussianBlur stdDeviation="5"/></filter>
+  <filter id="blurM"><feGaussianBlur stdDeviation="14"/></filter>
+  <filter id="blurL"><feGaussianBlur stdDeviation="28"/></filter>
+  <filter id="glow"><feGaussianBlur stdDeviation="8" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+  <rect width="1600" height="1000" fill="url(#sky)"/>
+  
+  <g opacity="0.14" filter="url(#blurL)"><path d="M 0 1000 L 0 620 L 0 449.79715056717396 L 228.57142857142858 518.2304948847741 L 457.14285714285717 493.117682011798 L 685.7142857142857 511.7624218855053 L 914.2857142857143 449.6058733947575 L 1142.857142857143 521.6212413553149 L 1371.4285714285713 437.1634125057608 L 1600 531.3577956333756 L 1600 1000 Z" fill="#5A4F70"/></g>
+  <g transform="translate(1130 330) scale(1.25)" opacity="0.9">
+  <polyline points="0,0 10,-14 4,-16 20,-44 12,-46 34,-84" fill="none" stroke="#FFF3D6" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+  <polyline points="0,0 10,-14 4,-16 20,-44 12,-46 34,-84" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+  <g opacity="0.24" filter="url(#blurM)"><path d="M 0 1000 L 0 720 L 0 705.0268823746592 L 228.57142857142858 535.5310795689002 L 457.14285714285717 503.775648297742 L 685.7142857142857 633.9931982802227 L 914.2857142857143 631.2048911023885 L 1142.857142857143 471.264609079808 L 1371.4285714285713 614.35258413665 L 1600 664.7086803521961 L 1600 1000 Z" fill="#5A4F70"/></g>
+  <g opacity="0.5" filter="url(#blurM)"><ellipse cx="1150" cy="360" rx="300" ry="90" fill="#ffffff"/></g>
+  <g opacity="0.4" filter="url(#blurS)"><path d="M 0 1000 L 0 830 L 0 751.1299417540431 L 228.57142857142858 616.0017501283437 L 457.14285714285717 587.1211151313037 L 685.7142857142857 737.0277671329677 L 914.2857142857143 750.2223654836416 L 1142.857142857143 667.8492023563012 L 1371.4285714285713 765.0919318385422 L 1600 715.8040363760665 L 1600 1000 Z" fill="#5A4F70"/></g>
+  <g transform="translate(470 300) scale(0.8)" opacity="0.9">
+  <polyline points="0,0 10,-14 4,-16 20,-44 12,-46 34,-84" fill="none" stroke="#FFF3D6" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+  <polyline points="0,0 10,-14 4,-16 20,-44 12,-46 34,-84" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+  <rect x="0" y="876" width="1600" height="124" fill="#FBF8F1" opacity="0.94"/>
+
+</svg>
