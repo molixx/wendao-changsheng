@@ -191,13 +191,14 @@ export async function narrateSystem(
     messages: [
       {
         role: 'system',
-        content: `${system}\n\n【本轮任务】玩家执行了行动「${action}」，系统已结算数值（结果见玩家消息）。请：
+        content: `${system}\n\n【本轮任务】玩家刚刚执行了一个行动，系统已按世界规则结算数值（玩家行动与结算结果见最后一条 user 消息）。请：
 1. 用 1~3 句修仙文风把结算结果演绎成剧情叙述：不要罗列数字清单、不要重复结算原文，直接写出情境与人物动作。
 2. 依据当前情境生成 3~5 个下一步选项（每个一句话行动，长度不限，可选语义标签：平和/机缘/风险/情缘/魔道）。
-只输出一个 JSON 对象：{"narrative": "...", "options": [{"text": "...", "tag": "平和"}]}，不要输出 JSON 之外的任何内容。`,
+只输出一个 JSON 对象：{"narrative": "...", "options": [{"text": "...", "tag": "平和"}]}，narrative 必须为纯中文文字，不要输出 JSON 之外的任何内容。`,
       },
       ...history,
-      { role: 'user', content: `结算结果：${resultSummary}` },
+      // 玩家选项作为独立 user 消息（让 AI 明确看到玩家做了什么）
+      { role: 'user', content: `玩家行动：「${action}」\n结算结果：${resultSummary}` },
     ],
     response_format: { type: 'json_object' },
     temperature: settings.temperature,
