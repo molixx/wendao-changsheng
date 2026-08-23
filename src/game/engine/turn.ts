@@ -425,7 +425,8 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       const result = await callNarrator(settings, system, input.history, llmAction)
       narrative = result.narrative
       options = sanitizeOptions(result.options)
-      scene = result.scene as SceneThemeKey | undefined
+      // 场景主题由代码（系统指令）决定，忽略 AI 返回的 scene——否则 AI 乱给值导致背景在集市/洞府之间乱跳
+      scene = undefined
       const applied = applyDeltas(nextState, result.deltas)
       nextState = applied.state
       deltas = applied.applied
