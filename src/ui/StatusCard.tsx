@@ -59,7 +59,8 @@ export function StatusCard({ game, spiritRootElements = [], location = '未知' 
   if (r.injury) dyn.push(INJURIES.find((i) => i.id === r.injury)?.name ?? r.injury)
   dyn.push(...r.statusEffects)
 
-  // 战斗派生属性（与战斗模块口径一致）
+  // 战斗派生属性（与战斗模块口径一致，公式来自 16.3 映射）：
+  // 攻击 = 资质×2 + 悟性；防御 = 道心 + ⌊气血上限/25⌋；遁速 = 遁速×2 + ⌊仙缘/2⌋
   const atk = p.stats.zizhi * 2 + p.stats.wuxing
   const def = p.stats.daoxin + Math.floor(r.hpMax / 25)
   const spd = p.stats.dunsu * 2 + Math.floor(p.stats.xianyuan / 2)
@@ -133,7 +134,10 @@ export function StatusCard({ game, spiritRootElements = [], location = '未知' 
         {/* 身份 */}
         {row('洞府', game.cave ? `灵气${game.cave.spiritConcentration}（Lv.${game.cave.level}）${game.cave.facilities.length ? `· ${game.cave.facilities.join('、')}` : ''}` : undefined)}
         {game.sectInfo.sect !== '散修' && row('宗门', `${game.sectInfo.sect} · ${game.sectInfo.rank} · 贡献 ${game.sectInfo.contribution}`)}
-        {row('战力', `攻击 ${atk} · 防御 ${def} · 遁速 ${spd}`)}
+        {row(
+          '战力',
+          `攻 ${atk}（资质${p.stats.zizhi}×2+悟性${p.stats.wuxing}） · 防 ${def}（道心${p.stats.daoxin}+气血上限/25） · 速 ${spd}（遁速${p.stats.dunsu}×2+仙缘/2）`,
+        )}
 
         {/* 人际 */}
         {game.daoPartner && row('道侣', game.daoPartner)}
