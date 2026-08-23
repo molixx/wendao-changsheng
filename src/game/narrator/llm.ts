@@ -106,6 +106,30 @@ export async function testConnection(
   }
 }
 
+/** 发起一次补全请求并取回 content 文本；空内容（模型偶发）自动重试一次 */
+async function fetchContent(settings: NarratorSettings, body: Record<string, unknown>): Promise<string> {
+  const base = settings.baseUrl.replace(/\/+$/, '')
+  let lastErr: Error | null = null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(`${base}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}` },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}：${(await res.text()).slice(0, 200)}`)
+      const data = (await res.json()) as { choices?: { message?: { content?: string } }[] }
+      const content = data.choices?.[0]?.message?.content ?? ''
+      if (content.trim()) return content
+      lastErr = new Error('LLM 返回为空内容')
+    } catch (e) {
+      lastErr = e instanceof Error ? e : new Error(String(e))
+      if (!/返回为空|Failed to fetch|NetworkError/i.test(lastErr.message)) throw lastErr // 网络级错误不重试
+    }
+  }
+  throw lastErr ?? new Error('LLM 请求失败')
+}
+
 /** 系统指令的 AI 演绎 + 选项生成：代码结算结果 → AI 写成叙事 + 3~5 个情境选项（JSON） */
 export async function narrateSystem(
   settings: NarratorSettings,
@@ -114,8 +138,7 @@ export async function narrateSystem(
   action: string,
   resultSummary: string,
 ): Promise<NarratorTurn> {
-  const base = settings.baseUrl.replace(/\/+$/, '')
-  const isDeepSeek = /deepseek\.com$/i.test(base)
+  const isDeepSeek = /deepseek\.com$/i.test(settings.baseUrl.replace(/\/+$/, ''))
   const body: Record<string, unknown> = {
     model: settings.model,
     messages: [
@@ -134,20 +157,14 @@ export async function narrateSystem(
     max_tokens: 800,
   }
   if (isDeepSeek) body.thinking = { type: 'disabled' }
-  const res = await fetch(`${base}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}` },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) throw new Error(`LLM 演绎失败（${res.status}）：${(await res.text()).slice(0, 200)}`)
-  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] }
-  const content = data.choices?.[0]?.message?.content
-  if (!content) throw new Error('LLM 演绎返回为空')
+  const content = await fetchContent(settings, body)
   try {
     const parsed = JSON.parse(content) as NarratorTurn
-    return { narrative: parsed.narrative ?? '', options: sanitizeOptions(parsed.options) }
+    const narrative = typeof parsed.narrative === 'string' ? parsed.narrative.trim() : ''
+    return { narrative, options: sanitizeOptions(parsed.options) }
   } catch {
-    return { narrative: content.slice(0, 300), options: [] }
+    // 内容非 JSON：若可读则当纯文本叙事（系统指令侧由调用方回退模板叙事）
+    return { narrative: content.trim() ? content.slice(0, 300) : '', options: [] }
   }
 }
 
@@ -158,8 +175,7 @@ export async function callNarrator(
   history: NarratorMessage[],
   userAction: string,
 ): Promise<NarratorTurn> {
-  const base = settings.baseUrl.replace(/\/+$/, '')
-  const isDeepSeek = /deepseek\.com$/i.test(base)
+  const isDeepSeek = /deepseek\.com$/i.test(settings.baseUrl.replace(/\/+$/, ''))
   const body: Record<string, unknown> = {
     model: settings.model,
     messages: [
@@ -175,26 +191,17 @@ export async function callNarrator(
   if (isDeepSeek) {
     body.thinking = { type: 'disabled' }
   }
-  const res = await fetch(`${base}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${settings.apiKey}`,
-    },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    throw new Error(`LLM 请求失败（${res.status}）：${(await res.text()).slice(0, 300)}`)
-  }
-  const data = (await res.json()) as {
-    choices?: { message?: { content?: string } }[]
-  }
-  const content = data.choices?.[0]?.message?.content
-  if (!content) throw new Error('LLM 返回为空')
+  const content = await fetchContent(settings, body)
   try {
-    return JSON.parse(content) as NarratorTurn
-  } catch {
-    // 兜底：内容不是合法 JSON 时退化为纯文本回合
-    return { narrative: content.slice(0, 200), options: [], timePassedMonths: 1 }
+    const parsed = JSON.parse(content) as NarratorTurn
+    const narrative = typeof parsed.narrative === 'string' ? parsed.narrative.trim() : ''
+    if (!narrative) throw new Error('LLM 返回的 narrative 为空')
+    return { ...parsed, narrative, options: sanitizeOptions(parsed.options) }
+  } catch (e) {
+    if (e instanceof SyntaxError) {
+      // 兜底：内容不是合法 JSON 时退化为纯文本回合
+      return { narrative: content.trim().slice(0, 200), options: [], timePassedMonths: 1 }
+    }
+    throw e
   }
 }
