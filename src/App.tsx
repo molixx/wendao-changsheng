@@ -110,7 +110,7 @@ function Shell() {
 
   // play
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-3 py-4 sm:px-6">
+    <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-4 px-3 py-4 sm:px-6">
       {/* 恢复提示（短暂显示） */}
       {restoreTip && restoredTurn !== null && (
         <div className="rounded-lg border border-[color:var(--theme-color)] bg-[color:var(--paper)]/95 px-4 py-2 text-sm shadow">
