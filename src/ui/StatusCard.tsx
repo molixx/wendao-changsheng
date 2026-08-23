@@ -134,10 +134,9 @@ export function StatusCard({ game, spiritRootElements = [], location = '未知' 
         {/* 身份 */}
         {row('洞府', game.cave ? `灵气${game.cave.spiritConcentration}（Lv.${game.cave.level}）${game.cave.facilities.length ? `· ${game.cave.facilities.join('、')}` : ''}` : undefined)}
         {game.sectInfo.sect !== '散修' && row('宗门', `${game.sectInfo.sect} · ${game.sectInfo.rank} · 贡献 ${game.sectInfo.contribution}`)}
-        {row(
-          '战力',
-          `攻 ${atk}（资质${p.stats.zizhi}×2+悟性${p.stats.wuxing}） · 防 ${def}（道心${p.stats.daoxin}+气血上限/25） · 速 ${spd}（遁速${p.stats.dunsu}×2+仙缘/2）`,
-        )}
+        {row('战力', `攻 ${atk}（资质${p.stats.zizhi}×2+悟性${p.stats.wuxing}）`)}
+        {row('', `防 ${def}（道心${p.stats.daoxin}+气血上限/25）`)}
+        {row('', `速 ${spd}（遁速${p.stats.dunsu}×2+仙缘/2）`)}
 
         {/* 人际 */}
         {game.daoPartner && row('道侣', game.daoPartner)}

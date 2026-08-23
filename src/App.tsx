@@ -137,7 +137,7 @@ function Shell() {
 
       <div className="flex flex-1 gap-4">
         {/* 桌面侧栏状态卡 */}
-        <aside className="hidden w-72 shrink-0 sm:block">
+        <aside className="hidden w-96 shrink-0 sm:block">
           <div className="sticky top-4">
             {game && <StatusCard game={game} spiritRootElements={spiritRootElements} location={location} />}
           </div>
