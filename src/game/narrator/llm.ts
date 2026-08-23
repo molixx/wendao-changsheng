@@ -247,7 +247,19 @@ export async function narrateOpening(
   return { narrative, options: sanitizeOptions(parsed.options) }
 }
 
-/** 调用 OpenAI 兼容端点 */
+/** 纯文本兜底：剥离可能的 JSON 壳（如 "narrative": "…" 或 {"narrative": "…"}）后取叙事文本 */
+export function fallbackNarrative(text: string): string {
+  let t = (text ?? '').trim()
+  t = t.replace(/^\s*\{?\s*"narrative"\s*:\s*"?/, '')
+  // 在下一个 JSON 结构边界截断（如 ", "} 或 "options" 等）
+  const cut = t.search(/"?\s*,?\s*[,}\]]|"options"/)
+  if (cut > 0) t = t.slice(0, cut)
+  t = t.replace(/"?\s*[,}\]]?\s*$/, '')
+  t = sanitizeNarrative(t).trim().slice(0, 300)
+  return t || '天道静默不语。'
+}
+
+/** 调用 OpenAI 兼容端点（带降级重试：完整 → 去历史纯文本；空白/业务失败自动降级） */
 export async function callNarrator(
   settings: NarratorSettings,
   system: string,
@@ -255,35 +267,48 @@ export async function callNarrator(
   userAction: string,
 ): Promise<NarratorTurn> {
   const isDeepSeek = /deepseek\.com$/i.test(settings.baseUrl.replace(/\/+$/, ''))
-  const body: Record<string, unknown> = {
-    model: settings.model,
-    messages: [
-      { role: 'system', content: system },
-      ...history,
-      { role: 'user', content: userAction },
-    ],
-    response_format: { type: 'json_object' },
-    temperature: settings.temperature,
-    max_tokens: 1024,
-  }
-  // DeepSeek 默认开启思考模式：关闭以降低延迟/成本并让 temperature 生效
-  if (isDeepSeek) {
-    body.thinking = { type: 'disabled' }
-  }
-  const content = await fetchContent(settings, body)
-  try {
-    const parsed = JSON.parse(content) as NarratorTurn
-    const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
-    const narrative = sanitizeNarrative(rawNarrative)
-    if (!narrative) {
-      throw new Error(hasLatexMarkup(rawNarrative) ? 'LLM 返回 LaTeX 且清洗后无可用文本' : 'LLM 返回的 narrative 为空')
+  const variants: { messages: { role: string; content: string }[]; json: boolean }[] = [
+    { messages: [{ role: 'system', content: system }, ...history, { role: 'user', content: userAction }], json: true },
+    // 降级：去掉历史（可能触发模型空白）+ 纯文本
+    { messages: [{ role: 'system', content: `${system}\n\n（注：此前对话暂缺，请直接回应本轮。）` }, { role: 'user', content: userAction }], json: false },
+  ]
+  let lastErr: Error | null = null
+  for (const v of variants) {
+    const body: Record<string, unknown> = {
+      model: settings.model,
+      messages: v.messages,
+      temperature: settings.temperature,
+      max_tokens: 1024,
     }
-    return { ...parsed, narrative, options: sanitizeOptions(parsed.options) }
-  } catch (e) {
-    if (e instanceof SyntaxError) {
-      // 兜底：内容不是合法 JSON 时退化为纯文本回合
-      return { narrative: sanitizeNarrative(content).trim().slice(0, 200) || '天道静默不语。', options: [], timePassedMonths: 1 }
+    if (v.json) body.response_format = { type: 'json_object' }
+    if (isDeepSeek) body.thinking = { type: 'disabled' }
+    try {
+      const content = await fetchContent(settings, body)
+      if (v.json) {
+        const parsed = JSON.parse(content) as NarratorTurn
+        const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
+        const narrative = sanitizeNarrative(rawNarrative) || '天道静默不语。'
+        return { ...parsed, narrative, options: sanitizeOptions(parsed.options) }
+      }
+      // 纯文本档：模型可能仍输出 JSON 形态文本 → 先尝试解析，失败再当纯文本
+      const trimmed = content.trim()
+      let narrative = ''
+      let opts: { text: string; tag?: string }[] = []
+      try {
+        const parsed = JSON.parse(trimmed) as NarratorTurn
+        if (parsed && typeof parsed.narrative === 'string') {
+          narrative = sanitizeNarrative(parsed.narrative)
+          opts = sanitizeOptions(parsed.options)
+        }
+      } catch {
+        /* 非 JSON → 走纯文本 */
+      }
+      if (!narrative) narrative = fallbackNarrative(trimmed)
+      return { narrative, options: opts, timePassedMonths: 1 }
+    } catch (e) {
+      if (isOfflineError(e)) throw e // 真断网：不降级，交给调用方冻结
+      lastErr = e instanceof Error ? e : new Error(String(e))
     }
-    throw e
   }
+  throw lastErr ?? new Error('LLM 请求失败')
 }

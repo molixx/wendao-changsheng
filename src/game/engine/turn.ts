@@ -135,15 +135,26 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
     const system = buildSystemPrompt(WORLD_BIBLE, buildWorldSnapshot(input.state))
     // 「回到主剧情」等指令：提示 AI 自然接续主线
     const llmAction = isStoryResume ? `${input.action}（你已处理完手头事务，请自然接续当前主线剧情，不要新开一条剧情线）` : input.action
-    const result = await callNarrator(settings, system, input.history, llmAction)
-    narrative = result.narrative
-    options = sanitizeOptions(result.options)
-    scene = result.scene as SceneThemeKey | undefined
-    timePassedMonths = Math.max(1, Math.min(12, result.timePassedMonths ?? 1))
-    const applied = applyDeltas(nextState, result.deltas)
-    nextState = applied.state
-    deltas = applied.applied
-    engine = 'llm'
+    try {
+      const result = await callNarrator(settings, system, input.history, llmAction)
+      narrative = result.narrative
+      options = sanitizeOptions(result.options)
+      scene = result.scene as SceneThemeKey | undefined
+      timePassedMonths = Math.max(1, Math.min(12, result.timePassedMonths ?? 1))
+      const applied = applyDeltas(nextState, result.deltas)
+      nextState = applied.state
+      deltas = applied.applied
+      engine = 'llm'
+    } catch (e) {
+      // 真断网 → 冻结（抛给调用方停留+重试）；业务失败（多次重试仍空白/报错）→ 最小化续行，保证游戏可继续
+      if (isOfflineError(e)) throw e
+      narrative = `你依言而行：「${input.action}」。天道暂未细述此事（叙事引擎响应异常），天光流转，岁月如常。`
+      options = [
+        { text: '重试演绎', tag: '平和' },
+        { text: '回到主剧情', tag: '平和' },
+      ]
+      engine = 'code'
+    }
   }
 
   // 叙事兜底：任何路径都不允许空白叙事（否则会污染后续 LLM 历史）
