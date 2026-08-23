@@ -10,6 +10,8 @@ import { majorBreakthrough, enlightenment } from './breakthrough'
 import { marketList, marketBuy, useItem } from './economy'
 import { practiceTechnique, caveUpgrade, sectJoin, sectTask, affectionAction, heal, randomEventRoll, qiyuRoll } from './systems'
 import { combatStep, applyCombatResult, startCombat, type CombatState } from './combat'
+import { saveSnapshot } from '../save'
+import type { LogEntry } from './turn'
 import { OPENING_SCRIPTS } from '../data/events'
 import { REALMS } from '../data/realms'
 import { TECHNIQUES, SECT_RANKS } from '../data/systems'
@@ -125,6 +127,8 @@ function tryCombatStep(state: GameState, command: string): SystemResult | null {
     const s2 = applyCombatResult(state, step)
     const flags = { ...s2.flags }
     delete flags.combat
+    // 战斗失利（败亡或落败未死）→ 记标记，供失败回退提示（快照已在战斗前写好）
+    if (!step.victory && !step.escaped) flags.combatLost = true
     const result: SystemResult = {
       state: { ...s2, flags },
       narrative: `${last}\n\n${step.victory ? '【你胜了这场争斗。】' : step.escaped ? '【你遁走了。】' : '【你败了……】'}`,
@@ -149,7 +153,7 @@ function tryCombatStep(state: GameState, command: string): SystemResult | null {
 }
 
 /** 执行系统指令，返回代码权威的结果 */
-export function executeSystem(cmd: Command, state: GameState): SystemResult | null {
+export function executeSystem(cmd: Command, state: GameState, storyLog?: LogEntry[]): SystemResult | null {
   const t = fmtTimeShort(state.timeline)
 
   // 战斗会话优先
@@ -194,6 +198,12 @@ export function executeSystem(cmd: Command, state: GameState): SystemResult | nu
           timePassedMonths: 0,
         }
       }
+      // 事件前快照：突破前自动存（供失败/陨落后回退重新决策）
+      saveSnapshot(state, `${state.player.daoName} · 突破前 · 回合${state.turn}`, {
+        log: storyLog ?? [],
+        pendingOptions: [],
+        scene: 'xuanzi',
+      })
       const r = majorBreakthrough(state, cmd.path)
       if (r.died) {
         return {
@@ -204,10 +214,13 @@ export function executeSystem(cmd: Command, state: GameState): SystemResult | nu
           timePassedMonths: 1,
         }
       }
+      // 真失败判定：前置不满足（修为未满/未圆满/冷却）时返回的是原状态引用；真失败会构造新状态
+      const failed = !r.ok && !r.died && r.state !== state
+      const st2 = failed ? { ...r.state, flags: { ...r.state.flags, lastBreakFailed: true } } : r.state
       const opts = r.ok
         ? CMD_OPTIONS([{ text: '查看状态', tag: '平和' }, { text: '继续修炼', tag: '平和' }])
         : CMD_OPTIONS([{ text: '闭关疗伤', tag: '平和' }, { text: '继续修炼', tag: '平和' }])
-      return { state: r.state, narrative: r.msg, options: opts, scene: 'xuanzi', timePassedMonths: 1 }
+      return { state: st2, narrative: r.msg, options: opts, scene: 'xuanzi', timePassedMonths: 1 }
     }
 
     case 'enlighten': {
@@ -444,6 +457,12 @@ export function executeSystem(cmd: Command, state: GameState): SystemResult | nu
           speed: 8 + realmIdx * 3,
           elements: ['火'],
         }
+        // 战斗前快照（供败亡/失利后回退重新决策）
+        saveSnapshot(s, `${s.player.daoName} · 战斗前 · 回合${s.turn}`, {
+          log: storyLog ?? [],
+          pendingOptions: [],
+          scene: 'zhusha',
+        })
         const cs = startCombat(s, enemy)
         const s2: GameState = { ...s, flags: { ...s.flags, combat: JSON.stringify(cs) } }
         s = s2

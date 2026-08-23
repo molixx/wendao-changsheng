@@ -90,7 +90,7 @@ export interface GameState {
   lastSaveTurn: number
 }
 
-/** 存档格式（3 槽 + 自动 + JSON 导入导出） */
+/** 存档格式（3 槽 + 自动 + JSON 导入导出 + 事件快照） */
 export interface SaveFile {
   meta: {
     schema: 'wendao-changsheng'
@@ -100,6 +100,10 @@ export interface SaveFile {
     summary: string // 道号 · 境界 · 天玄历
   }
   state: GameState
+  /** 剧情流（最近 50 回合）——手动存档也含剧情流，读档后无缝续玩；旧存档无此字段自动兼容 */
+  log?: { id: number; time: string; narrative: string; options: { text: string; tag?: string }[]; scene?: string; deltas?: string[] }[]
+  pendingOptions?: { text: string; tag?: string }[]
+  scene?: string
 }
 
 /** LLM 叙事设置（可配置 OpenAI 兼容端点） */

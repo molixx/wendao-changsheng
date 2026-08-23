@@ -6,7 +6,7 @@ import type { GameState, NarratorSettings, SaveFile } from './state'
 import { DEFAULT_SETTINGS } from './state'
 import { resolveTurn, openingTurn, nextId, type LogEntry } from './engine/turn'
 import { fmtTimeShort } from './engine/time'
-import { saveAuto } from './save'
+import { saveAuto, loadSnapshot } from './save'
 import { saveSession, loadSession, clearSession, trimLog, type Session } from './session'
 
 export type Screen = 'title' | 'create' | 'play' | 'settings' | 'lore'
@@ -21,6 +21,8 @@ interface GameStore {
   error: string | null
   /** 是否刚从现场会话恢复（用于展示轻提示） */
   restoredTurn: number | null
+  /** 失败回退提示（突破/战斗失败时出现）：kind + 快照回合 */
+  snapshotOffer: { kind: '突破' | '战斗'; turn: number } | null
 
   toScreen: (s: Screen) => void
   setSettings: (patch: Partial<NarratorSettings>) => void
@@ -32,6 +34,10 @@ interface GameStore {
   abandonSession: () => void
   /** 外部（另一标签）写入的会话：接管为当前进度 */
   takeOverSession: (s: Session) => void
+  /** 回退到事件前快照（突破/战斗前），清失败标记 */
+  revertToSnapshot: () => boolean
+  /** 忽略失败回退提示，继续当前进度 */
+  dismissSnapshotOffer: () => void
   submitAction: (input: string) => Promise<void>
   resetGame: () => void
   clearError: () => void
@@ -72,6 +78,7 @@ export const useGame = create<GameStore>()(
       busy: false,
       error: null,
       restoredTurn: null,
+      snapshotOffer: null,
 
       toScreen: (s) => set({ screen: s }),
 
@@ -86,20 +93,24 @@ export const useGame = create<GameStore>()(
           pendingOptions: entry.options,
           error: null,
           restoredTurn: null,
+          snapshotOffer: null,
         })
         persistCurrentSession(s, [{ id: nextId(), ...entry }], entry.options)
       },
 
       continueFromSave: (file) => {
+        const fLog = file.log as LogEntry[] | undefined
+        const fOpts = file.pendingOptions as { text: string; tag?: string }[] | undefined
         set({
           screen: 'play',
           game: file.state,
-          log: [],
-          pendingOptions: [],
+          log: fLog ?? [],
+          pendingOptions: fOpts ?? [],
           error: null,
           restoredTurn: null,
+          snapshotOffer: null,
         })
-        persistCurrentSession(file.state, [], [])
+        persistCurrentSession(file.state, fLog ?? [], fOpts ?? [])
       },
 
       restoreSession: () => {
@@ -139,6 +150,40 @@ export const useGame = create<GameStore>()(
         })
       },
 
+      revertToSnapshot: () => {
+        const snap = loadSnapshot()
+        if (!snap) return false
+        const fLog = snap.log as LogEntry[] | undefined
+        const fOpts = snap.pendingOptions as { text: string; tag?: string }[] | undefined
+        const clean = { ...snap.state, flags: { ...snap.state.flags } }
+        delete clean.flags.lastBreakFailed
+        delete clean.flags.combatLost
+        delete clean.flags.dead
+        set({
+          screen: 'play',
+          game: clean,
+          log: fLog ?? [],
+          pendingOptions: fOpts ?? [],
+          error: null,
+          restoredTurn: snap.meta.turn,
+          snapshotOffer: null,
+        })
+        persistCurrentSession(clean, fLog ?? [], fOpts ?? [])
+        return true
+      },
+
+      dismissSnapshotOffer: () => {
+        const { game } = get()
+        if (game) {
+          const flags = { ...game.flags }
+          delete flags.lastBreakFailed
+          delete flags.combatLost
+          set({ game: { ...game, flags }, snapshotOffer: null })
+        } else {
+          set({ snapshotOffer: null })
+        }
+      },
+
       submitAction: async (input) => {
         const { game, settings, log, busy } = get()
         if (!game || busy) return
@@ -149,21 +194,27 @@ export const useGame = create<GameStore>()(
             content: `（回合 ${e.time}）`,
           }))
           history.push({ role: 'user', content: input })
-          const out = await resolveTurn({ state: game, action: input, history }, settings)
+          const out = await resolveTurn({ state: game, action: input, history, log }, settings)
           const entry = makeLogEntry(out.state, out.narrative, out.options, out.scene, out.deltas)
           const newLog = [...log, entry]
+          const s2 = out.state
+          // 失败回退提示：突破失败 / 战斗失利（快照已在事件前写好）
+          let offer: GameStore['snapshotOffer'] = null
+          if (s2.flags.lastBreakFailed) offer = { kind: '突破', turn: s2.turn }
+          else if (s2.flags.combatLost) offer = { kind: '战斗', turn: s2.turn }
           set({
-            game: out.state,
+            game: s2,
             log: newLog,
             pendingOptions: out.options,
             busy: false,
+            snapshotOffer: offer,
           })
-          // 每回合持久化现场（刷新可无缝恢复）
-          persistCurrentSession(out.state, newLog, out.options)
+          // 每回合持久化现场（刷新可无缝恢复）；死亡回合不覆盖，保留死前现场供回档
+          if (!s2.flags.dead) persistCurrentSession(s2, newLog, out.options)
           // 每 30 回合自动存档（3 槽之外的安全网）
-          if (out.state.turn % 30 === 0) {
-            const p = out.state.player
-            saveAuto(out.state, `${p.daoName} · ${p.realm}·${p.stage} · 回合${out.state.turn}`)
+          if (s2.turn % 30 === 0) {
+            const p = s2.player
+            saveAuto(s2, `${p.daoName} · ${p.realm}·${p.stage} · 回合${s2.turn}`, { log: newLog, pendingOptions: out.options, scene: out.scene })
           }
         } catch (e) {
           set({ busy: false, error: e instanceof Error ? e.message : String(e) })

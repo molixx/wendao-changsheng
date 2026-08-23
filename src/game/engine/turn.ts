@@ -23,6 +23,8 @@ export interface TurnInput {
   state: GameState
   action: string
   history: { role: 'user' | 'assistant'; content: string }[]
+  /** 当前剧情流（事件快照需要写入事件前的剧情） */
+  log?: LogEntry[]
 }
 
 export interface TurnOutput {
@@ -69,7 +71,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
   let nextState = input.state
 
   if (!isFree) {
-    const sys = executeSystem(cmd, input.state)
+    const sys = executeSystem(cmd, input.state, input.log)
     if (sys) {
       nextState = sys.state
       narrative = sys.narrative

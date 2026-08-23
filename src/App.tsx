@@ -26,7 +26,7 @@ export default function App() {
 }
 
 function Shell() {
-  const { screen, game, resetGame, restoreSession, takeOverSession, restoredTurn } = useGame()
+  const { screen, game, resetGame, restoreSession, takeOverSession, restoredTurn, snapshotOffer, revertToSnapshot, dismissSnapshotOffer } = useGame()
   const [showSave, setShowSave] = useState(false)
   const [showStatus, setShowStatus] = useState(false)
   const [takeover, setTakeover] = useState<{ turn: number } | null>(null)
@@ -158,6 +158,34 @@ function Shell() {
 
       {showSave && <SavePanel onClose={() => setShowSave(false)} />}
       {dead && <DeathOverlay />}
+
+      {/* 失败回退提示（突破失败 / 战斗失利，快照已在事件前写好） */}
+      {snapshotOffer && !dead && (
+        <div className="fixed inset-x-0 bottom-4 z-50 mx-auto w-[92%] max-w-md">
+          <div className="rounded-xl border-2 border-[color:var(--theme-color)] bg-[color:var(--paper)] p-4 shadow-xl">
+            <p className="text-sm font-bold">【{snapshotOffer.kind}失利】回合 #{snapshotOffer.turn} 的{snapshotOffer.kind}失败了。</p>
+            <p className="cmdline mt-1 text-xs">可回退到{snapshotOffer.kind}前重新决策（自动快照），或接受结果继续前进。</p>
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={() => {
+                  if (!revertToSnapshot()) {
+                    window.alert('未找到事件前快照')
+                  }
+                }}
+                className="flex-1 rounded-lg bg-[color:var(--theme-color)] px-3 py-2 text-sm font-bold text-white"
+              >
+                回退到{snapshotOffer.kind}前
+              </button>
+              <button
+                onClick={dismissSnapshotOffer}
+                className="rounded-lg border border-[color:var(--ink-muted)]/40 px-4 py-2 text-sm"
+              >
+                接受结果继续
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 多标签接管提示 */}
       {takeover && (

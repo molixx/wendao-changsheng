@@ -1,15 +1,27 @@
-/** 标题页 —— 开始 / 读档（优先现场进度）/ 放弃进度 / 设置 / 图鉴 */
+/** 标题页 —— 开始 / 读档（3 槽详情）/ 继续（现场进度优先）/ 放弃进度 / 设置 / 图鉴 */
 
+import { useState } from 'react'
 import { useGame } from '../game/store'
-import { listSlots } from '../game/save'
+import { listSlots, clearSlot, fmtSavedAt } from '../game/save'
+import type { SaveFile } from '../game/state'
 import { hasSession } from '../game/session'
 import { Panel } from './Panel'
+import { ConfirmDialog } from './ConfirmDialog'
 
 export function TitleScreen() {
   const { toScreen, continueFromSave, restoreSession, abandonSession } = useGame()
-  const slots = listSlots()
+  const [showLoad, setShowLoad] = useState(false)
+  const [slots, setSlots] = useState(listSlots())
+  const [delSlot, setDelSlot] = useState<{ i: number; summary: string } | null>(null)
   const anySave = slots.some((s) => s !== null)
   const hasPending = hasSession()
+
+  const refresh = () => setSlots(listSlots())
+
+  const loadSlot = (f: SaveFile) => {
+    continueFromSave(f)
+    setShowLoad(false)
+  }
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-lg flex-col items-center justify-center gap-6 px-4 py-10">
@@ -45,6 +57,18 @@ export function TitleScreen() {
           </button>
         )}
 
+        {anySave && (
+          <button
+            onClick={() => {
+              refresh()
+              setShowLoad(true)
+            }}
+            className="rounded-xl border border-[color:var(--theme-color)] px-4 py-2 text-sm text-[color:var(--theme-color)] hover:bg-white/95"
+          >
+            读档（{slots.filter(Boolean).length}/{slots.length} 槽）
+          </button>
+        )}
+
         {hasPending && (
           <button
             onClick={() => {
@@ -68,6 +92,64 @@ export function TitleScreen() {
           </button>
         </div>
       </div>
+
+      {/* 读档面板 */}
+      {showLoad && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setShowLoad(false)}>
+          <div className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <Panel theme="qingyu" title="读档" subtitle={`${slots.filter(Boolean).length}/${slots.length} 槽`} className="w-full">
+              <div className="flex flex-col gap-2">
+                {slots.map((s, i) => (
+                  <div key={i} className="flex items-center gap-2 rounded-lg border border-[color:var(--theme-color)]/30 bg-white/60 px-3 py-2">
+                    <span className="cmdline w-10 shrink-0">槽{i + 1}</span>
+                    <div className="min-w-0 flex-1">
+                      {s ? (
+                        <>
+                          <p className="truncate text-sm font-bold">{s.meta.summary}</p>
+                          <p className="cmdline text-xs">{fmtSavedAt(s.meta.savedAt)} · {s.log ? '含剧情流' : '旧版存档'}</p>
+                        </>
+                      ) : (
+                        <p className="cmdline text-sm">空</p>
+                      )}
+                    </div>
+                    {s && (
+                      <>
+                        <button onClick={() => loadSlot(s)} className="rounded bg-[color:var(--theme-color)] px-2.5 py-1 text-xs text-white">
+                          读档
+                        </button>
+                        <button
+                          onClick={() => setDelSlot({ i, summary: s.meta.summary })}
+                          className="rounded border border-[color:var(--val-hp)]/50 px-2 py-1 text-xs text-[color:var(--val-hp)]"
+                        >
+                          删
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))}
+                <button onClick={() => setShowLoad(false)} className="rounded-lg bg-[color:var(--theme-color)] px-3 py-2 text-sm text-white">
+                  关闭
+                </button>
+              </div>
+            </Panel>
+          </div>
+        </div>
+      )}
+
+      {delSlot && (
+        <ConfirmDialog
+          title="删除存档"
+          message={`确定删除槽位 ${delSlot.i + 1}（${delSlot.summary}）？此操作不可撤销。`}
+          danger
+          confirmText="删除"
+          onConfirm={() => {
+            clearSlot(delSlot.i + 1)
+            setDelSlot(null)
+            refresh()
+          }}
+          onCancel={() => setDelSlot(null)}
+        />
+      )}
     </div>
   )
 }
