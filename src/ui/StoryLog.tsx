@@ -28,6 +28,7 @@ function EntryCard({
   onFreeAction?: () => void
 }) {
   const narr = hasLatexMarkup(entry.narrative) ? sanitizeNarrative(entry.narrative) : entry.narrative
+  const summary = entry.summary ?? (entry.narrative ? entry.narrative.replace(/\s+/g, ' ').slice(0, 60) : '')
   return (
     <article className="panel shrink-0 px-4 py-3">
       <p className="cmdline flex items-center gap-2">
@@ -40,6 +41,7 @@ function EntryCard({
           </span>
         )}
       </p>
+      {summary && <p className="mt-1 text-sm font-bold text-[color:var(--theme-color)]">{summary}</p>}
       <p className="mt-1 whitespace-pre-wrap leading-relaxed">{narr}</p>
       {entry.deltas && entry.deltas.length > 0 && (
         <p className="cmdline mt-1">【数值变化】{entry.deltas.join(' · ')}</p>
