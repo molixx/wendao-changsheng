@@ -4,7 +4,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { GameState, NarratorSettings, SaveFile } from './state'
 import { DEFAULT_SETTINGS } from './state'
-import { resolveTurn, openingTurn, buildWorldSnapshot, nextId, type LogEntry } from './engine/turn'
+import { resolveTurn, openingTurn, buildWorldSnapshot, reconcileLifespan, nextId, type LogEntry } from './engine/turn'
 import { fmtTimeShort } from './engine/time'
 import { saveAuto, loadSnapshot } from './save'
 import { saveSession, loadSession, clearSession, trimLog, type Session } from './session'
@@ -161,7 +161,7 @@ export const useGame = create<GameStore>()(
         const fOpts = file.pendingOptions as { text: string; tag?: string }[] | undefined
         set({
           screen: 'play',
-          game: file.state,
+          game: reconcileLifespan(file.state),
           log: normalizeLog(fLog ?? []),
           pendingOptions: fOpts ?? [],
           error: null,
@@ -177,7 +177,7 @@ export const useGame = create<GameStore>()(
         if (!s) return false
         set({
           screen: 'play',
-          game: s.state,
+          game: reconcileLifespan(s.state),
           log: normalizeLog(s.log),
           pendingOptions: s.pendingOptions,
           error: null,
@@ -202,7 +202,7 @@ export const useGame = create<GameStore>()(
       takeOverSession: (s) => {
         set({
           screen: 'play',
-          game: s.state,
+          game: reconcileLifespan(s.state),
           log: normalizeLog(s.log),
           pendingOptions: s.pendingOptions,
           error: null,
@@ -221,7 +221,7 @@ export const useGame = create<GameStore>()(
         delete clean.flags.dead
         set({
           screen: 'play',
-          game: clean,
+          game: reconcileLifespan(clean),
           log: normalizeLog(fLog ?? []),
           pendingOptions: fOpts ?? [],
           error: null,

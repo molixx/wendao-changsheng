@@ -242,6 +242,13 @@ export function applyDeltas(state: GameState, deltas?: Record<string, unknown>):
   return applied.length ? { state: s, applied } : { state, applied: [] }
 }
 
+/** 寿元对账：剩余寿元 = min(当前, 寿元上限 - 年龄)（修复旧档/创角期满寿元的偏差） */
+export function reconcileLifespan(state: GameState): GameState {
+  const cap = Math.max(0, state.res.lifespanMax - state.player.age)
+  if (state.res.lifespan <= cap) return state
+  return { ...state, res: { ...state.res, lifespan: cap } }
+}
+
 /** 衰老结算：每回合按流逝月数统一计算年龄/寿元（跨回合用 flags.ageMonths 累加余数），寿元耗尽 → 坐化 */
 export function applyAging(state: GameState, months: number): GameState {
   if (months <= 0 || state.flags.dead) return state

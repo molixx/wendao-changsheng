@@ -28,7 +28,7 @@ async function main() {
   console.log('== 1. 创角初始状态 ==')
   const s0 = buildInitialForTest()
   check('初始境界炼气·初期', s0.player.realm === '炼气' && s0.player.stage === '初期')
-  check('寿元 100', s0.res.lifespan === 100)
+  check('寿元 84（100-年龄16）', s0.res.lifespan === 84)
   check('灵石 100', s0.res.spirit === 100)
 
   console.log('\n== 2. 指令路由 ==')

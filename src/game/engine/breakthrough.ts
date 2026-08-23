@@ -226,7 +226,8 @@ export function majorBreakthrough(state: GameState, path: BreakthroughPath): Maj
         ...r,
         cult: 0,
         cultMax: nextCultMax,
-        lifespan: newLifespan,
+        // 剩余寿元 = 新境界上限 - 当前年龄（此前已消耗的年岁不再补回）
+        lifespan: Math.max(1, newLifespan - p.age),
         lifespanMax: newLifespan,
         // 心魔劫既渡，旧有心魔亦随之消散（推算，原文未言明）
         injury: r.injury === 'heart-demon' ? null : r.injury,

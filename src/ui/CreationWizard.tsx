@@ -77,7 +77,7 @@ function buildInitialState(d: Draft): GameState {
       hp: 100, hpMax: 100,
       mp: 80, mpMax: 80,
       cult: 0, cultMax: 100,
-      lifespan: lifespanMax, lifespanMax,
+      lifespan: Math.max(0, lifespanMax - d.age), lifespanMax,
       spirit: 100, merit: 0, karma: 0,
       mood: 1.0, injury: null, statusEffects: [],
     },
