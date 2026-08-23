@@ -206,7 +206,8 @@ export async function narrateSystem(
         content: `${system}\n\n【本轮任务】玩家刚刚执行了一个行动，系统已按世界规则结算数值（玩家行动与结算结果见最后一条 user 消息）。请：
 1. 用修仙文风把结算结果演绎成剧情叙述：不要罗列数字清单、不要重复结算原文，直接写出情境、人物动作与细节，篇幅不限。
 2. 依据当前情境生成下一步选项（数量、长度不限（3~4 个）；可带简短语义标签，自由发挥）。
-只输出一个 JSON 对象：{"narrative": "...", "options": [{"text": "...", "tag": "平和"}]}，narrative 必须为纯中文文字，不要输出 JSON 之外的任何内容。`,
+3. 给出本回合流逝月数 timePassedMonths（0~12）：系统已结算数值，时间流逝由你根据情境决定——闭关/赶路可数月，瞬时事件可为 0。
+只输出一个 JSON 对象：{"narrative": "...", "options": [{"text": "...", "tag": "平和"}], "timePassedMonths": 1}，narrative 必须为纯中文文字，不要输出 JSON 之外的任何内容。`,
       },
       ...history,
       // 玩家选项作为独立 user 消息（让 AI 明确看到玩家做了什么）
@@ -222,7 +223,8 @@ export async function narrateSystem(
     const parsed = JSON.parse(content) as NarratorTurn
     const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
     const narrative = sanitizeNarrative(rawNarrative)
-    return { narrative, options: sanitizeOptions(parsed.options) }
+    const months = typeof parsed.timePassedMonths === 'number' ? Math.max(0, Math.min(12, Math.round(parsed.timePassedMonths))) : undefined
+    return { narrative, options: sanitizeOptions(parsed.options), timePassedMonths: months }
   } catch {
     // 内容非 JSON：若可读则当纯文本叙事（系统指令侧由调用方回退模板叙事）
     return { narrative: content.trim() ? sanitizeNarrative(content).slice(0, 1200) : '', options: [] }

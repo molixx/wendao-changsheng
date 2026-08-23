@@ -293,6 +293,12 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
         narrative = narrated.narrative || codeNarrative
         options = sanitizeOptions(narrated.options)
         if (options.length === 0) options = sys.options
+        // 系统指令的时间也由 AI 决定（AI 未给时退回代码结算值）
+        if (typeof narrated.timePassedMonths === 'number') {
+          timePassedMonths = Math.max(0, Math.min(12, Math.round(narrated.timePassedMonths)))
+        } else {
+          timePassedMonths = sys.timePassedMonths
+        }
         engine = 'llm'
       } catch (e) {
         // 真断网 → 离线冻结（抛给调用方停留+重试）；AI 业务失败（空内容/超时/服务错误）→ 系统指令回退代码结算叙事（数值一致，不编剧情）
@@ -302,7 +308,6 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
         engine = 'code'
       }
       scene = sys.scene
-      timePassedMonths = sys.timePassedMonths
       deltas = []
     } else {
       isFree = true
