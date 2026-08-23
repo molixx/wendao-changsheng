@@ -7,7 +7,7 @@
 
 import type { GameState } from '../state'
 import { roll } from './dice'
-import { advanceTime, fmtTimeShort } from './time'
+import { fmtTimeShort } from './time'
 import { REALMS, GROWTH_BASE } from '../data/realms'
 import { GONGFAS, FATE_CHANGES } from '../data/systems'
 import { SPIRIT_ROOTS } from '../data/creation'
@@ -244,7 +244,7 @@ export function minorBreakthrough(state: GameState): { state: GameState; ok: boo
  * 修炼（逐月结算，原文 1 回合 = 1 月）：
  * 逐月累加修为到 res.cult；修为满 cultMax 时自动尝试小突破（悟性判定，可重试）；
  * 每满 12 个月寿元 −1、年龄 +1（寿元以年计，原文 5.4/状态卡）；寿元耗尽 → flags.dead='坐化'；
- * 更新 timeline（advanceTime；turn 计数由回合管线统一推进）；大突破失败所致的「短期无法再突破」冷却随月递减。
+ * 时间/年龄/寿元由回合管线统一推进（本模块只处理修为与突破）；「短期无法再突破」冷却随月递减。
  */
 export function cultivate(state: GameState, months = 1, closedDoor = false): CultivateResult {
   if (state.flags.dead) {
@@ -263,8 +263,6 @@ export function cultivate(state: GameState, months = 1, closedDoor = false): Cul
   let gained = 0
   let factors: string[] = []
   const msgs: string[] = []
-  // 寿元/年龄的月数余量（跨次闭关累加，存于 flags.ageMonths，避免 12 的余数丢失）
-  let ageAcc = typeof s.flags.ageMonths === 'number' ? s.flags.ageMonths : 0
   const closedLabel = closedDoor ? '闭关' : '修炼'
 
   for (let i = 0; i < n; i++) {
@@ -295,33 +293,10 @@ export function cultivate(state: GameState, months = 1, closedDoor = false): Cul
       next = bp.state
       msgs.push(bp.msg)
     }
-
-    // 时间推进（1 回合 = 1 月；turn 计数由回合管线统一推进，本模块只掌管岁月流逝）
-    const timeline = advanceTime(next.timeline, 1)
-    // 年龄 / 寿元：每满 12 个月寿元 −1、年龄 +1
-    ageAcc += 1
-    let lifespan = next.res.lifespan
-    let age = next.player.age
-    if (ageAcc >= 12) {
-      ageAcc -= 12
-      lifespan -= 1
-      age += 1
-    }
-    let res2 = { ...next.res, lifespan }
-    const player2 = { ...next.player, age }
-    let flags2: GameState['flags'] = { ...next.flags, ageMonths: ageAcc }
-
-    if (lifespan <= 0) {
-      res2 = { ...res2, lifespan: 0 }
-      flags2 = { ...flags2, dead: '坐化' }
-      msgs.push(`寿元耗尽——你于${fmtTimeShort(timeline)}油尽灯枯，坐化于洞府之中。`)
-      s = { ...next, player: player2, res: res2, timeline, flags: flags2 }
-      break
-    }
-    s = { ...next, player: player2, res: res2, timeline, flags: flags2 }
+    s = next
   }
 
-  // 大事记：有里程碑事件时记录
+  // 时间/年龄/寿元由回合管线统一推进（cultivate 不掌管岁月流逝）
   const log = msgs.length > 0 ? [...s.log, fmtTimeShort(s.timeline), ...msgs] : s.log
   const final: GameState = { ...s, log }
 

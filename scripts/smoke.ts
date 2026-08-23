@@ -46,7 +46,7 @@ async function main() {
   check('修为增加', c.gained > 0, `gained=${c.gained}`)
   check('factors 有 5 项系数', c.factors.length >= 5, c.factors.join('|'))
   check('状态不可变', c.state !== s0)
-  check('时间推进 1 月', c.state.timeline.month === s0.timeline.month + 1 || (c.state.timeline.year === s0.timeline.year + 1 && c.state.timeline.month === 1))
+  check('时间/年龄/寿元由回合管线统一推进（cultivate 不推）', c.state.timeline === s0.timeline)
 
   console.log('\n== 4. 回合管线（无 Key → 失败即停留，不生成替代内容） ==')
   const off = DEFAULT_SETTINGS

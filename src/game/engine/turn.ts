@@ -242,6 +242,24 @@ export function applyDeltas(state: GameState, deltas?: Record<string, unknown>):
   return applied.length ? { state: s, applied } : { state, applied: [] }
 }
 
+/** 衰老结算：每回合按流逝月数统一计算年龄/寿元（跨回合用 flags.ageMonths 累加余数），寿元耗尽 → 坐化 */
+export function applyAging(state: GameState, months: number): GameState {
+  if (months <= 0 || state.flags.dead) return state
+  const total = (typeof state.flags.ageMonths === 'number' ? state.flags.ageMonths : 0) + months
+  const years = Math.floor(total / 12)
+  const ageMonths = total % 12
+  if (years <= 0) return { ...state, flags: { ...state.flags, ageMonths } }
+  const age = state.player.age + years
+  const lifespan = Math.max(0, state.res.lifespan - years)
+  let flags: GameState['flags'] = { ...state.flags, ageMonths }
+  let res = { ...state.res, lifespan }
+  if (lifespan <= 0) {
+    res = { ...res, lifespan: 0 }
+    flags = { ...flags, dead: '坐化' }
+  }
+  return { ...state, player: { ...state.player, age }, res, flags }
+}
+
 /** 主入口：执行一个回合（LLM 失败即抛出，由调用方停留+重试，绝不生成替代内容） */
 export async function resolveTurn(input: TurnInput, settings: NarratorSettings): Promise<TurnOutput> {
   const cmd = routeCommand(input.action)
@@ -320,11 +338,18 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
   if (!options.some((o) => o.text.includes('回到主剧情'))) {
     options = [...options, { text: '回到主剧情', tag: '平和' }]
   }
+  // 衰老结算：年龄/寿元随流逝月数统一更新（所有回合类型都生效），寿元耗尽 → 坐化
+  const aged = applyAging(nextState, timePassedMonths)
   const newState: GameState = {
-    ...nextState,
+    ...aged,
     timeline: newTimeline,
     turn: nextState.turn + 1,
     log: [...nextState.log, fmtTimeShort(newTimeline)],
+  }
+
+  // 坐化提示附到叙事末尾
+  if (aged.flags.dead && !nextState.flags.dead) {
+    narrative = `${narrative}\n\n【寿元耗尽——你于${fmtTimeShort(newTimeline)}油尽灯枯，坐化归尘。】`
   }
 
   return {
