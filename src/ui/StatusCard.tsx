@@ -4,7 +4,7 @@ import type { GameState } from '../game/state'
 import { fmtTimeShort, seasonOf } from '../game/engine/time'
 import { Panel, Bar, Chip, GoldLine } from './Panel'
 import { VALUE_COLORS, ELEMENT_COLORS } from './theme'
-import { GONGFAS, TECHNIQUES } from '../game/data/systems'
+import { GONGFAS, TECHNIQUES, FATE_CHANGES } from '../game/data/systems'
 import { ORIGINS, TALENTS, PHYSIQUES, DAO_PATHS, SPIRIT_ROOTS } from '../game/data/creation'
 
 interface Props {
@@ -44,6 +44,23 @@ export function StatusCard({ game, spiritRootElements = [], location = '未知' 
   const rels = Object.entries(game.relationships)
     .map(([k, v]) => `${k} ${v}`)
     .join('、')
+
+  // 动态状态（flags）
+  const fate = FATE_CHANGES.filter((f) => typeof game.flags[`fate:${f}`] === 'number').map((f) => f.replace(/（.*）/, ''))
+  const dyn: string[] = []
+  if (typeof game.flags.breakCooldown === 'number' && game.flags.breakCooldown > 0) dyn.push(`突破冷却（${game.flags.breakCooldown}月）`)
+  if (game.flags.hiddenInjury) dyn.push('暗伤（部分属性永久压制）')
+  if (game.flags.modao) dyn.push('入魔')
+  if (game.flags.spiritBeast) dyn.push('灵兽认主')
+  if (game.flags.secretRealmOpen) dyn.push('秘境现世')
+  if (game.flags.combat) dyn.push('战斗中')
+  if (r.injury) dyn.push(r.injury)
+  dyn.push(...r.statusEffects)
+
+  // 战斗派生属性（与战斗模块口径一致）
+  const atk = p.stats.zizhi * 2 + p.stats.wuxing
+  const def = p.stats.daoxin + Math.floor(r.hpMax / 25)
+  const spd = p.stats.dunsu * 2 + Math.floor(p.stats.xianyuan / 2)
 
   const row = (label: string, value: string | undefined) =>
     value ? (
@@ -109,10 +126,12 @@ export function StatusCard({ game, spiritRootElements = [], location = '未知' 
         {gongfas.length > 0 && row('功法', gongfas.join('、'))}
         {row('技艺', techniques || undefined)}
         {row('悟道', enlightenments || undefined)}
+        {fate.length > 0 && row('逆天改命', fate.join('、'))}
 
         {/* 身份 */}
         {row('洞府', game.cave ? `灵气${game.cave.spiritConcentration}（Lv.${game.cave.level}）${game.cave.facilities.length ? `· ${game.cave.facilities.join('、')}` : ''}` : undefined)}
         {game.sectInfo.sect !== '散修' && row('宗门', `${game.sectInfo.sect} · ${game.sectInfo.rank} · 贡献 ${game.sectInfo.contribution}`)}
+        {row('战力', `攻击 ${atk} · 防御 ${def} · 遁速 ${spd}`)}
 
         {/* 人际 */}
         {game.daoPartner && row('道侣', game.daoPartner)}
@@ -123,9 +142,9 @@ export function StatusCard({ game, spiritRootElements = [], location = '未知' 
         {/* 背包 */}
         {row('背包', bag || undefined)}
 
-        {/* 状态 */}
-        {(r.injury || r.statusEffects.length > 0) && (
-          <p className="danger-line">异常：{[r.injury, ...r.statusEffects].filter(Boolean).join('、')}</p>
+        {/* 动态状态（情缘好感/受伤/入魔/灵兽/秘境等实时刷新） */}
+        {dyn.length > 0 && (
+          <p className="danger-line">异常：{dyn.join('、')}</p>
         )}
         <p className="cmdline">所在地 {location} · 时节 {seasonOf(t.month)}</p>
         {game.mainQuest && <p className="cmdline">主线：{game.mainQuest}</p>}
