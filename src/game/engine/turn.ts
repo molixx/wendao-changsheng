@@ -53,9 +53,13 @@ export interface TurnOutput {
   engine: 'llm' | 'code' | 'offline'
 }
 
+/** 日志条目 id：时间戳基准 + 单调递增，保证刷新/恢复旧档后也绝不与历史 id 冲突（旧 id 从 1 起，
+ *  刷新后若重新从 1 计数会与恢复的旧日志 key 冲突，导致 React 渲染错乱——summary 行被复用/省略） */
 let seq = 0
 export function nextId(): number {
-  return ++seq
+  const base = Date.now()
+  seq = Math.max(seq + 1, base)
+  return seq
 }
 
 /** 世界快照：压缩成 LLM 可读的上下文（对应原文「世界进度备忘录」）。
