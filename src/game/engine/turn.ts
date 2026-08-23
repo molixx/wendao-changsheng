@@ -369,13 +369,11 @@ function cnToNum(s: string): number | null {
   return digits[s] ?? null
 }
 
-/** 时间口径：AI 返回 timePassedMonths 为主（返回多少推进多少）；AI 未返回/返回 0 时，
- *  若叙事中明确提到时间流逝（一月/三月/半年/一年等数字短语）则兜底折算——防止 AI 叙事写了时间却忘返回 */
-function settleTime(aiMonths: number | undefined, narrative: string): number {
-  if (typeof aiMonths === 'number' && aiMonths > 0) return Math.max(0, Math.min(12, aiMonths))
-  if (!narrative) return 0
-  // 明确数字时间短语（排除：绝对纪年/时节/回溯，如「天玄历387年」「三月桃花」「三年前」）
-  const t = narrative
+/** 从一句话文本（summary）解析时间流逝：AI 写 summary 时被要求必须包含时间描述（闭关三月/赶路数日/瞬时空闲），
+ *  解析得到本回合流逝月数。一句话歧义远小于长叙事（无时间行/纪年干扰），且排除时节（三月桃花）与回溯（三年前）。 */
+export function inferMonthsFromText(text: string): number {
+  if (!text) return 0
+  const t = text
     .replace(/天玄历\s*[一二三四五六七八九十百千万两\d]+\s*年/g, ' ')
     .replace(/入道\s*第?[一二三四五六七八九十百千万两元\d]+\s*年/g, ' ')
     .replace(/[\u4e00-\u9fa5]{1,4}元\s*年/g, ' ')
@@ -404,6 +402,17 @@ function settleTime(aiMonths: number | undefined, narrative: string): number {
     }
     return n
   }
+  // 数日/数天 ≈ 0.3（不足一月，跨回合累积）
+  if (/数日|几日|数天|几天/.test(t)) return 0.3
+  return 0
+}
+
+/** 时间口径：以 summary 中的时间描述为准（AI 被要求必写）——解析 summary 得月数；
+ *  AI 单独返回的 timePassedMonths 仅作兜底（summary 未写时间时） */
+function settleTime(aiMonths: number | undefined, summary: string): number {
+  const fromSummary = inferMonthsFromText(summary)
+  if (fromSummary > 0) return fromSummary
+  if (typeof aiMonths === 'number' && aiMonths > 0) return Math.max(0, Math.min(12, aiMonths))
   return 0
 }
 
@@ -440,7 +449,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
         options = sanitizeOptions(narrated.options)
         if (options.length === 0) options = sys.options
         // 时间口径：AI 返回为主；AI 未给/给 0 但叙事提到明确时长 → 兜底折算
-        timePassedMonths = settleTime(narrated.timePassedMonths, narrative)
+        timePassedMonths = settleTime(narrated.timePassedMonths, narrated.summary ?? narrative)
         // 系统指令数值已由代码结算；AI deltas 只采纳状态类字段（伤势/异常/心境），防止双加
         rawDeltas = narrated.deltas
         const applied = applyDeltas(nextState, narrated.deltas, 'status')
@@ -478,7 +487,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       nextState = applied.state
       deltas = applied.applied
       // 时间口径：AI 返回为主；AI 未给/给 0 但叙事提到明确时长 → 兜底折算
-      timePassedMonths = settleTime(result.timePassedMonths, result.narrative)
+      timePassedMonths = settleTime(result.timePassedMonths, result.summary ?? result.narrative)
       engine = 'llm'
     } catch (e) {
       // 真断网 → 冻结（抛给调用方停留+重试）；业务失败（多次重试仍空白/报错）→ 最小化续行，保证游戏可继续
