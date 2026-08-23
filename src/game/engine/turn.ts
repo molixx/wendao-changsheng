@@ -8,6 +8,8 @@ import { callNarrator, narrateSystem, sanitizeOptions, buildSystemPrompt, isOffl
 import { routeCommand, executeSystem, resolveOpening } from './actions'
 import { advanceTime, fmtTimeShort } from './time'
 import { WORLD_BIBLE } from '../data/worldview'
+import { NPCS } from '../data/world'
+import { ENLIGHTENMENT_BRANCHES, TECHNIQUES } from '../data/systems'
 
 export interface LogEntry {
   id: number
@@ -113,7 +115,131 @@ export function applyDeltas(state: GameState, deltas?: Record<string, unknown>):
       applied.push(`${label} ${before}→${next}`)
     }
   }
-  return applied.length ? { state: { ...state, res }, applied } : { state, applied: [] }
+  let s = { ...state, res }
+  // ── 六维属性（资质/悟性/神识/遁速/道心/仙缘，1~20）──
+  const STAT_ALIASES: Record<string, keyof GameState['player']['stats']> = {
+    资质: 'zizhi', zizhi: 'zizhi', 悟性: 'wuxing', wuxing: 'wuxing',
+    神识: 'shenshi', shenshi: 'shenshi', 遁速: 'dunsu', dunsu: 'dunsu',
+    道心: 'daoxin', daoxin: 'daoxin', 仙缘: 'xianyuan', xianyuan: 'xianyuan',
+  }
+  const rawStats = deltas.stats ?? deltas.属性
+  if (rawStats && typeof rawStats === 'object') {
+    const stats = { ...s.player.stats }
+    for (const [k, rv] of Object.entries(rawStats as Record<string, unknown>)) {
+      const key = k.toLowerCase ? k.toLowerCase() : k
+      const f = STAT_ALIASES[key] ?? STAT_ALIASES[k]
+      if (!f) continue
+      const v = toNumber(rv)
+      if (v === null || v === 0) continue
+      const before = stats[f]
+      const next = Math.max(1, Math.min(20, before + Math.round(v)))
+      if (next !== before) {
+        stats[f] = next
+        applied.push(`${f} ${before}→${next}`)
+      }
+    }
+    s = { ...s, player: { ...s.player, stats } }
+  }
+  // ── 好感（relationships，0~100，按 NPC 名/id）──
+  const rawAff = deltas.affinity ?? deltas.好感 ?? deltas.relationships
+  if (rawAff && typeof rawAff === 'object') {
+    const rel = { ...s.relationships }
+    for (const [k, rv] of Object.entries(rawAff as Record<string, unknown>)) {
+      const npc = NPCS.find((n) => n.id === k || n.name === k || k.includes(n.name))
+      if (!npc) continue
+      const v = toNumber(rv)
+      if (v === null || v === 0) continue
+      const before = rel[npc.id] ?? 0
+      const next = Math.max(0, Math.min(100, before + Math.round(v)))
+      if (next !== before) {
+        rel[npc.id] = next
+        applied.push(`${npc.name}好感 ${before}→${next}`)
+      }
+    }
+    s = { ...s, relationships: rel }
+  }
+  // ── 背包物品（bag：正加负减，不为负）──
+  const rawBag = deltas.bag ?? deltas.物品 ?? deltas.items
+  if (rawBag && typeof rawBag === 'object') {
+    const bag = { ...s.bag }
+    for (const [k, rv] of Object.entries(rawBag as Record<string, unknown>)) {
+      const v = toNumber(rv)
+      if (v === null || v === 0) continue
+      const n = Math.round(v)
+      const before = bag[k] ?? 0
+      const next = Math.max(0, before + n)
+      if (next !== before) {
+        bag[k] = next
+        if (next === 0) delete bag[k]
+        applied.push(`${k} ×${before}→${next}`)
+      }
+    }
+    s = { ...s, bag }
+  }
+  // ── 异常状态（injury：字符串或 null 清除；status：附加/清空）──
+  if ('injury' in deltas || '伤势' in deltas) {
+    const raw = deltas.injury ?? deltas.伤势
+    const next = raw === null || raw === undefined || raw === '无' || raw === 'none' ? null : String(raw).slice(0, 20)
+    if (next !== s.res.injury) {
+      s = { ...s, res: { ...s.res, injury: next } }
+      applied.push(`状态 ${s.res.injury ?? '无'}→${next ?? '无'}`)
+    }
+  }
+  if ('status' in deltas || '异常' in deltas) {
+    const raw = deltas.status ?? deltas.异常
+    if (Array.isArray(raw)) {
+      const next = raw.map((x) => String(x).slice(0, 12)).filter(Boolean)
+      s = { ...s, res: { ...s.res, statusEffects: [...new Set(next)] } }
+      applied.push(`异常 ${next.join('、') || '无'}`)
+    }
+  }
+  // ── 心境（mood：0.5/1.0/1.2）──
+  if ('mood' in deltas || '心境' in deltas) {
+    const v = toNumber(deltas.mood ?? deltas.心境)
+    if (v !== null) {
+      const next = v >= 1.1 ? 1.2 : v <= 0.7 ? 0.5 : 1.0
+      if (next !== s.res.mood) {
+        s = { ...s, res: { ...s.res, mood: next } }
+        applied.push(`心境 ${s.res.mood}→${next}`)
+      }
+    }
+  }
+  // ── 悟道（enlightenment：1~9）／技艺（technique：1~5）──
+  const rawEnl = deltas.enlightenment ?? deltas.悟道
+  if (rawEnl && typeof rawEnl === 'object') {
+    const enl = { ...s.enlightenment }
+    for (const [k, rv] of Object.entries(rawEnl as Record<string, unknown>)) {
+      const branch = ENLIGHTENMENT_BRANCHES.find((b) => b === k || k.includes(b) || b.includes(k))
+      if (!branch) continue
+      const v = toNumber(rv)
+      if (v === null || v === 0) continue
+      const before = enl[branch] ?? 0
+      const next = Math.max(1, Math.min(9, before + Math.round(v)))
+      if (next !== before) {
+        enl[branch] = next
+        applied.push(`${branch}悟道 ${before}→${next}`)
+      }
+    }
+    s = { ...s, enlightenment: enl }
+  }
+  const rawTech = deltas.technique ?? deltas.技艺
+  if (rawTech && typeof rawTech === 'object') {
+    const tech = { ...s.techniqueLevels }
+    for (const [k, rv] of Object.entries(rawTech as Record<string, unknown>)) {
+      const t = TECHNIQUES.find((x) => x.id === k || x.name === k || k.includes(x.name))
+      if (!t) continue
+      const v = toNumber(rv)
+      if (v === null || v === 0) continue
+      const before = tech[t.id] ?? 0
+      const next = Math.max(1, Math.min(5, before + Math.round(v)))
+      if (next !== before) {
+        tech[t.id] = next
+        applied.push(`${t.name} ${before}→${next}`)
+      }
+    }
+    s = { ...s, techniqueLevels: tech }
+  }
+  return applied.length ? { state: s, applied } : { state, applied: [] }
 }
 
 /** 主入口：执行一个回合（LLM 失败即抛出，由调用方停留+重试，绝不生成替代内容） */

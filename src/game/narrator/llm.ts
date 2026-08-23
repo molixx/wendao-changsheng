@@ -75,11 +75,17 @@ ${worldSnapshot}
   "scene": "qingyu|xuanzi|zhusha|taofen|ziqi|liujin|tianqing|zhuqing",
   "deltas": {}
 }
-deltas 规则（可选，影响玩家状态卡）：用英文键给出**数值变化**——hp(气血) / mp(灵力) / cult(修为) / spirit(灵石) / merit(功德) / karma(业力) / lifespan(寿元)。
-写法二选一，前端都会处理：
-1) 增量：{"hp": -40, "spirit": 50}（带符号的"变化量"）
-2) 绝对剩余值（0~上限类字段适用）：{"hp": 60}（表示当前气血变为 60）
-不要用拼音或中文键（如 qi、气血）；消耗/回复气血灵力、灵石增减等必须写进 deltas，状态卡才会变。
+deltas 规则（可选，影响玩家状态卡）：前端会校验并钳制到合法范围：
+- 数值：hp(气血)/mp(灵力)/cult(修为)/spirit(灵石)/merit(功德)/karma(业力)/lifespan(寿元)，带符号增量或绝对值
+- stats（六维）：{"stats": {"悟性": 1, "道心": -1}}，范围 1~20
+- affinity（好感）：{"affinity": {"顾清玄": 5}}，范围 0~100，NPC 用名字
+- bag（物品）：{"bag": {"聚气丹": 1, "灵药": -1}}，正加负减，不能为负
+- injury（伤势）：{"injury": "轻伤"} 或 {"injury": null} 清除
+- status（附加异常）：{"status": ["中毒", "心魔缠身"]}，[] 清除
+- mood（心境）：{"mood": 1.2}（0.5/1.0/1.2）
+- enlightenment（悟道）：{"enlightenment": {"剑道": 1}}，1~9
+- technique（技艺）：{"technique": {"炼丹": 1}}，1~5
+境界突破、宗门、修炼成长等重大系统变化请引导玩家使用对应指令，不要通过 deltas 声称。
 铁律：narrative 禁止输出任何 LaTeX / Markdown / HTML 标记（\fcolorbox、\textcolor、\colorbox、\begin{array}、\(...\)、#FFFFFF、代码块、加粗星号等一律禁止），界面由前端渲染，你只负责纯文字叙事；只推进 1 个事件节点；不替玩家决定重大事件（只以选项呈现）；玩家可自由输入任意行动，你必须在世界逻辑内响应；真实修仙界会死、不暗中放水。`
 }
 
