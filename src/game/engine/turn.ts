@@ -262,15 +262,18 @@ function cnToNum(s: string): number | null {
 export function inferTimeFromNarrative(narrative: string): number {
   if (!narrative) return 0
   // 先掩蔽绝对纪年/时间行（叙事开头必带，属当前时刻而非流逝）：
-  // 天玄历 387 年、入道三年 · 五月、筑基元年 · 冬、炼气五年等
+  // 天玄历 387 年 / 天玄历三百八十八年、入道三年 · 五月 / 入道第三年 · 五月、筑基元年 · 冬、炼气五年等。
+  // 中文数字纪年必须覆盖（百/千/十/两），否则「三百八十八年」会被当成流逝 388 年 → 封顶 12 个月
+  const CN_YEAR_NUM = '[一二三四五六七八九十百千万两\\d]+'
   const t = narrative
-    .replace(/天玄历\s*\d+\s*年/g, '天玄历N年')
-    .replace(/入道\s*[元一二三四五六七八九十两\d]+\s*年\s*[·,，]?\s*[一二三四五六七八九十两\d]+\s*月/g, '入道N年N月')
-    .replace(/入道\s*[元一二三四五六七八九十两\d]+\s*年/g, '入道N年')
+    .replace(new RegExp(`天玄历\\s*${CN_YEAR_NUM}\\s*年`, 'g'), '天玄历N年')
+    .replace(new RegExp(`入道\\s*第?\\s*[元一二三四五六七八九十百千万两\\d]+\\s*年\\s*[·,，]?\\s*[一二三四五六七八九十两\\d]+\\s*月`, 'g'), '入道N年N月')
+    .replace(new RegExp(`入道\\s*第?\\s*[元一二三四五六七八九十百千万两\\d]+\\s*年`, 'g'), '入道N年')
+    .replace(/第\s*[一二三四五六七八九十百千万两\d]+\s*年/g, '第N年')
     .replace(/[\u4e00-\u9fa5]{1,4}元\s*年/g, 'X元年')
     // 仅掩蔽「境界名 + N年」的状态表述（炼气五年 = 当前境界年限，非流逝）；
     // 「闭关十年」「苦修五年」等行为性表述保留（是真实流逝）
-    .replace(/(炼气|练气|筑基|结晶|金丹|具灵|元婴|化神|悟道|羽化|登仙)\s*[一二三四五六七八九十\d]+\s*年/g, 'X境界年')
+    .replace(/(炼气|练气|筑基|结晶|金丹|具灵|元婴|化神|悟道|羽化|登仙)\s*[一二三四五六七八九十百千万两\d]+\s*年/g, 'X境界年')
   const candidates: number[] = []
   /** 跳过回溯锚点：表述后紧跟「前」字（三年前/半月前/一月之前…） */
   const isFlashback = (endIdx: number) => {
