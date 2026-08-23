@@ -272,7 +272,7 @@ export async function narrateOpening(
       {
         role: 'system',
         content: `${system}\n\n【开局演绎】玩家刚刚创角完毕，等待你展开入世的第一幕。请以天道系统的口吻，依据玩家创角信息与所选开局剧本，用修仙文风自由展开开局情境（篇幅不限，充分写出氛围、细节与人物状态），并生成下一步选项（数量、长度不限（3~4 个）；可带简短语义标签，自由发挥）。
-只输出一个 JSON 对象：{"narrative": "...", "options": [{"text": "...", "tag": "平和"}]}，narrative 必须是纯中文文字，禁止任何 LaTeX / Markdown / HTML 标记。`,
+只输出一个 JSON 对象：{"narrative": "...", "summary": "20~40字概述开局情境，必填", "options": [{"text": "...", "tag": "平和"}]}，narrative 必须是纯中文文字，禁止任何 LaTeX / Markdown / HTML 标记。`,
       },
       { role: 'user', content: `创角信息：${characterSummary}\n开局剧本：${scriptDesc}` },
     ],
@@ -286,7 +286,11 @@ export async function narrateOpening(
   const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
   const narrative = sanitizeNarrative(rawNarrative)
   if (!narrative) throw new Error('开局演绎返回空')
-  return { narrative, options: sanitizeOptions(parsed.options) }
+  return {
+    narrative,
+    summary: typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 60) : undefined,
+    options: sanitizeOptions(parsed.options),
+  }
 }
 
 /** 纯文本兜底：剥离可能的 JSON 壳（如 "narrative": "…" 或 {"narrative": "…"}）后取叙事文本 */

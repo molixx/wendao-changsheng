@@ -150,7 +150,14 @@ export const useGame = create<GameStore>()(
               ].join('\n')
               const system = buildSystemPrompt(WORLD_BIBLE, buildWorldSnapshot(s))
               const narrated = await narrateOpening(cur.settings, system, characterSummary, `${script.name}：${script.desc}`)
-              const upgraded: LogEntry = { ...entry, id: entryId, narrative: narrated.narrative, options: sanitizeOptions(narrated.options), engine: 'llm' }
+              const upgraded: LogEntry = {
+                ...entry,
+                id: entryId,
+                narrative: narrated.narrative,
+                summary: narrated.summary,
+                options: sanitizeOptions(narrated.options),
+                engine: 'llm',
+              }
               const st = useGame.getState()
               const newLog = st.log.map((e) => (e.id === entryId ? upgraded : e))
               set({ log: newLog, pendingOptions: upgraded.options })
