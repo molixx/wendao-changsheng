@@ -31,7 +31,7 @@ export function Background() {
     src = SCENE_BG[lastScene ?? 'qingyu']
   }
   if (!src) return null
-  // PNG 优先；未生成 PNG 时浏览器自动回退到 SVG
-  const img = `url("${src}.png"), url("${src}.svg")`
+  // WebP（压缩版）优先 → PNG（原图）→ SVG（兜底），浏览器自动跳过加载失败项
+  const img = `url("${src}.webp"), url("${src}.png"), url("${src}.svg")`
   return <div key={src} className="bg-layer" style={{ backgroundImage: img }} aria-hidden />
 }

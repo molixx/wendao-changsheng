@@ -1,6 +1,7 @@
-/** 应用路由 + 主游戏界面（双端自适应：桌面侧栏状态卡 / 手机折叠） */
+/** 应用路由 + 主游戏界面（双端自适应：桌面侧栏状态卡 / 手机折叠）
+ *  全局功能：挂载时静默恢复现场会话 · 刷新/关闭前兜底持久化 · 多标签接管提示 */
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useGame } from './game/store'
 import { TitleScreen } from './ui/TitleScreen'
 import { SettingsPanel } from './ui/SettingsPanel'
@@ -13,6 +14,7 @@ import { LoreBrowser } from './ui/LoreBrowser'
 import { DeathOverlay } from './ui/DeathOverlay'
 import { Background } from './ui/Background'
 import { SPIRIT_ROOTS } from './game/data/creation'
+import { SESSION_KEY, saveSession, trimLog } from './game/session'
 
 export default function App() {
   return (
@@ -24,9 +26,74 @@ export default function App() {
 }
 
 function Shell() {
-  const { screen, game, resetGame } = useGame()
+  const { screen, game, resetGame, restoreSession, takeOverSession, restoredTurn } = useGame()
   const [showSave, setShowSave] = useState(false)
   const [showStatus, setShowStatus] = useState(false)
+  const [takeover, setTakeover] = useState<{ turn: number } | null>(null)
+  const [restoreTip, setRestoreTip] = useState(false)
+  const booted = useRef(false)
+
+  /* 挂载时静默恢复现场会话（只做一次，且仅在标题页无游戏时） */
+  useEffect(() => {
+    if (booted.current) return
+    booted.current = true
+    const restored = restoreSession()
+    if (restored) {
+      setRestoreTip(true)
+      const t = setTimeout(() => setRestoreTip(false), 4000)
+      return () => clearTimeout(t)
+    }
+  }, [restoreSession])
+
+  /* 刷新/关闭前兜底持久化当前现场（每回合已写，这里防最后一刻丢失） */
+  useEffect(() => {
+    const flush = () => {
+      const st = useGame.getState()
+      if (st.game && st.screen === 'play') {
+        const lastScene = [...st.log].reverse().find((e) => e.scene)?.scene
+        saveSession({
+          state: st.game,
+          log: trimLog(st.log),
+          pendingOptions: st.pendingOptions,
+          scene: lastScene,
+          savedAt: Date.now(),
+          turn: st.game.turn,
+        })
+      }
+    }
+    window.addEventListener('beforeunload', flush)
+    return () => window.removeEventListener('beforeunload', flush)
+  }, [])
+
+  /* 多标签防冲突：其他标签写入现场会话 → 提示接管 */
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== SESSION_KEY || !e.newValue) return
+      try {
+        const s = JSON.parse(e.newValue) as { turn?: number }
+        if (s?.turn !== undefined) setTakeover({ turn: s.turn })
+      } catch {
+        /* 忽略损坏数据 */
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+
+  const handleTakeover = (yes: boolean) => {
+    if (yes) {
+      const raw = localStorage.getItem(SESSION_KEY)
+      if (raw) {
+        try {
+          const s = JSON.parse(raw) as Parameters<typeof takeOverSession>[0]
+          if (s?.state) takeOverSession(s)
+        } catch {
+          /* 忽略 */
+        }
+      }
+    }
+    setTakeover(null)
+  }
 
   const dead = game ? Boolean(game.flags.dead) : false
   const spiritRootElements = game
@@ -42,6 +109,13 @@ function Shell() {
   // play
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-3 py-4 sm:px-6">
+      {/* 恢复提示（短暂显示） */}
+      {restoreTip && restoredTurn !== null && (
+        <div className="rounded-lg border border-[color:var(--theme-color)] bg-[color:var(--paper)]/95 px-4 py-2 text-sm shadow">
+          🌀 已恢复现场 · 回合 #{restoredTurn}（刷新前进度已接续）
+        </div>
+      )}
+
       {/* 顶部工具条 */}
       <div className="flex items-center justify-between">
         <button onClick={() => setShowStatus(true)} className="rounded-lg border border-[color:var(--theme-color)]/40 px-3 py-1 text-sm sm:hidden">
@@ -84,6 +158,30 @@ function Shell() {
 
       {showSave && <SavePanel onClose={() => setShowSave(false)} />}
       {dead && <DeathOverlay />}
+
+      {/* 多标签接管提示 */}
+      {takeover && (
+        <div className="fixed inset-x-0 bottom-4 z-50 mx-auto w-[92%] max-w-md">
+          <div className="rounded-xl border-2 border-[color:var(--theme-color)] bg-[color:var(--paper)] p-4 shadow-xl">
+            <p className="text-sm font-bold">检测到另一标签页更新了进度（回合 #{takeover.turn}）</p>
+            <p className="cmdline mt-1 text-xs">最后写入者生效。接管后将以另一标签的进度继续。</p>
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={() => handleTakeover(true)}
+                className="flex-1 rounded-lg bg-[color:var(--theme-color)] px-3 py-2 text-sm font-bold text-white"
+              >
+                接管进度
+              </button>
+              <button
+                onClick={() => handleTakeover(false)}
+                className="rounded-lg border border-[color:var(--ink-muted)]/40 px-4 py-2 text-sm"
+              >
+                忽略
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

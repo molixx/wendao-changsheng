@@ -1,13 +1,15 @@
-/** 标题页 —— 开始 / 读档 / 设置 / 图鉴 */
+/** 标题页 —— 开始 / 读档（优先现场进度）/ 放弃进度 / 设置 / 图鉴 */
 
 import { useGame } from '../game/store'
 import { listSlots } from '../game/save'
+import { hasSession } from '../game/session'
 import { Panel } from './Panel'
 
 export function TitleScreen() {
-  const { toScreen, continueFromSave } = useGame()
+  const { toScreen, continueFromSave, restoreSession, abandonSession } = useGame()
   const slots = listSlots()
   const anySave = slots.some((s) => s !== null)
+  const hasPending = hasSession()
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-lg flex-col items-center justify-center gap-6 px-4 py-10">
@@ -27,17 +29,36 @@ export function TitleScreen() {
         >
           开始新游戏
         </button>
-        {anySave && (
+
+        {(hasPending || anySave) && (
           <button
             onClick={() => {
-              const newest = slots.filter(Boolean).sort((a, b) => (b?.meta.savedAt ?? '').localeCompare(a?.meta.savedAt ?? ''))[0]
-              if (newest) continueFromSave(newest)
+              // 优先恢复现场会话（未完成的进度），否则读最近手动存档
+              if (!restoreSession() && anySave) {
+                const newest = slots.filter(Boolean).sort((a, b) => (b?.meta.savedAt ?? '').localeCompare(a?.meta.savedAt ?? ''))[0]
+                if (newest) continueFromSave(newest)
+              }
             }}
             className="rounded-xl border-2 border-[color:var(--theme-color)] px-4 py-3 font-bold text-[color:var(--theme-color)] hover:bg-white/95"
           >
-            继续游戏（最近存档）
+            继续游戏{hasPending ? '（未完成进度）' : '（最近存档）'}
           </button>
         )}
+
+        {hasPending && (
+          <button
+            onClick={() => {
+              if (window.confirm('放弃当前未完成进度，重新开始？（此操作不可撤销）')) {
+                abandonSession()
+                toScreen('create')
+              }
+            }}
+            className="rounded-xl border border-[color:var(--val-hp)]/50 px-4 py-2 text-sm text-[color:var(--val-hp)] hover:bg-white/95"
+          >
+            放弃进度 · 重新开始
+          </button>
+        )}
+
         <div className="grid grid-cols-2 gap-3">
           <button onClick={() => toScreen('settings')} className="rounded-xl border border-[color:var(--ink-muted)]/40 px-4 py-2 text-sm hover:bg-white/95">
             叙事引擎设置

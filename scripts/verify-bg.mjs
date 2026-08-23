@@ -1,4 +1,4 @@
-/** 背景图渲染验证：PNG 优先（不存在则测 SVG 兜底）
+/** 背景图渲染验证：WebP → PNG → SVG 按实际加载链检测
  *  检查：非透明占比（未空白）、天光主色（浅色）、墨色山体（下半部比天空暗）、色彩多样性 */
 
 import { chromium } from 'playwright'
@@ -21,9 +21,10 @@ async function main() {
         img.onerror = () => res(null)
         img.src = src
       })
-      let img = await load(`/bg/${n}.png`)
-      const kind = img ? 'png' : 'svg'
-      if (!img) img = await load(`/bg/${n}.svg`)
+      let img = await load(`/bg/${n}.webp`)
+      let kind = 'webp'
+      if (!img) { img = await load(`/bg/${n}.png`); kind = 'png' }
+      if (!img) { img = await load(`/bg/${n}.svg`); kind = 'svg' }
       if (!img) return { kind, error: true }
       const c = document.createElement('canvas')
       c.width = 160; c.height = 100
@@ -62,12 +63,12 @@ async function main() {
 
     if (r.error) {
       allOk = false
-      console.log(`❌ ${name.padEnd(11)} 文件缺失（png 与 svg 都不存在）`)
+      console.log(`❌ ${name.padEnd(11)} 文件缺失（webp/png/svg 均不存在）`)
       continue
     }
     const ok = r.opaquePct > 60 && r.darkPct > 2 && r.skyDarker && r.colorVariety > 12
     if (!ok) allOk = false
-    console.log(`${ok ? '✅' : '❌'} ${name.padEnd(11)} [${r.kind}] 不透明${r.opaquePct}% 淡墨${r.darkPct}% 山体${r.skyDarker ? '有' : '无'} 主色rgb(${r.avg}) 色种${r.colorVariety}`)
+    console.log(`${ok ? '✅' : '❌'} ${name.padEnd(11)} [${r.kind}] 不透明${r.opaquePct}% 淡墨${r.darkPct}% 山体${r.skyDarker ? '有' : '无'} 色种${r.colorVariety}`)
   }
   await browser.close()
   console.log(allOk ? '\n全部背景正常' : '\n存在异常背景')
