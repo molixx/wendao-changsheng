@@ -4,10 +4,14 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { GameState, NarratorSettings, SaveFile } from './state'
 import { DEFAULT_SETTINGS } from './state'
-import { resolveTurn, openingTurn, nextId, type LogEntry } from './engine/turn'
+import { resolveTurn, openingTurn, buildWorldSnapshot, nextId, type LogEntry } from './engine/turn'
 import { fmtTimeShort } from './engine/time'
 import { saveAuto, loadSnapshot } from './save'
 import { saveSession, loadSession, clearSession, trimLog, type Session } from './session'
+import { narrateOpening, sanitizeOptions, buildSystemPrompt } from './narrator/llm'
+import { WORLD_BIBLE } from './data/worldview'
+import { OPENING_SCRIPTS } from './data/events'
+import { ORIGINS, SPIRIT_ROOTS, PHYSIQUES, DAO_PATHS } from './data/creation'
 
 export type Screen = 'title' | 'create' | 'play' | 'settings' | 'lore'
 
@@ -96,16 +100,46 @@ export const useGame = create<GameStore>()(
 
       startNewGame: (state) => {
         const { state: s, entry } = openingTurn(state)
+        const entryId = nextId()
+        const log = [{ id: entryId, ...entry }]
         set({
           screen: 'play',
           game: s,
-          log: [{ id: nextId(), ...entry }],
+          log,
           pendingOptions: entry.options,
           error: null,
           restoredTurn: null,
           snapshotOffer: null,
         })
-        persistCurrentSession(s, [{ id: nextId(), ...entry }], entry.options)
+        persistCurrentSession(s, log, entry.options)
+        // 开局第一回合触发天道：LLM 可用时用 AI 演绎开局并原位替换第一张卡片
+        const cur = get()
+        if (cur.settings.useLlm && cur.settings.apiKey.trim().length > 0) {
+          void (async () => {
+            try {
+              const p = s.player
+              const scriptId = typeof s.flags.openingScript === 'string' ? s.flags.openingScript : OPENING_SCRIPTS[0].id
+              const script = OPENING_SCRIPTS.find((x) => x.id === scriptId) ?? OPENING_SCRIPTS[0]
+              const characterSummary = [
+                `道号${p.daoName}（${p.name}）· ${p.gender} · ${p.age}岁 · 仙姿${p.appearance}`,
+                `出身：${ORIGINS.find((o) => o.id === p.originId)?.name ?? '未知'}`,
+                `灵根：${SPIRIT_ROOTS.find((r) => r.id === p.spiritRootId)?.name ?? '未知'}`,
+                `体质：${PHYSIQUES.find((q) => q.id === p.physiqueId)?.name ?? '未知'}`,
+                `道途：${DAO_PATHS.find((d) => d.id === p.daoPathId)?.name ?? '未知'}`,
+                `六维：资质${p.stats.zizhi} 悟性${p.stats.wuxing} 神识${p.stats.shenshi} 遁速${p.stats.dunsu} 道心${p.stats.daoxin} 仙缘${p.stats.xianyuan}`,
+              ].join('\n')
+              const system = buildSystemPrompt(WORLD_BIBLE, buildWorldSnapshot(s))
+              const narrated = await narrateOpening(cur.settings, system, characterSummary, `${script.name}：${script.desc}`)
+              const upgraded: LogEntry = { ...entry, id: entryId, narrative: narrated.narrative, options: sanitizeOptions(narrated.options), engine: 'llm' }
+              const st = useGame.getState()
+              const newLog = st.log.map((e) => (e.id === entryId ? upgraded : e))
+              set({ log: newLog, pendingOptions: upgraded.options })
+              if (!st.game?.flags.dead) persistCurrentSession(st.game!, newLog, upgraded.options)
+            } catch {
+              // AI 开局失败：保持代码版开局（现状）
+            }
+          })()
+        }
       },
 
       continueFromSave: (file) => {

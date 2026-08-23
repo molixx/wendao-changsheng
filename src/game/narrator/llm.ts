@@ -192,6 +192,37 @@ export async function narrateSystem(
   }
 }
 
+/** 开局演绎：创角后第一回合由天道（AI）展开入世情境（JSON） */
+export async function narrateOpening(
+  settings: NarratorSettings,
+  system: string,
+  characterSummary: string,
+  scriptDesc: string,
+): Promise<NarratorTurn> {
+  const isDeepSeek = /deepseek\.com$/i.test(settings.baseUrl.replace(/\/+$/, ''))
+  const body: Record<string, unknown> = {
+    model: settings.model,
+    messages: [
+      {
+        role: 'system',
+        content: `${system}\n\n【开局演绎】玩家刚刚创角完毕，等待你展开入世的第一幕。请以天道系统的口吻，依据玩家创角信息与所选开局剧本，用 2~4 句修仙文风写出开局情境（让玩家立刻身临其境），并生成 3~5 个下一步选项（长度不限，可带语义标签：平和/机缘/风险/情缘/魔道）。
+只输出一个 JSON 对象：{"narrative": "...", "options": [{"text": "...", "tag": "平和"}]}，narrative 必须是纯中文文字，禁止任何 LaTeX / Markdown / HTML 标记。`,
+      },
+      { role: 'user', content: `创角信息：${characterSummary}\n开局剧本：${scriptDesc}` },
+    ],
+    response_format: { type: 'json_object' },
+    temperature: settings.temperature,
+    max_tokens: 800,
+  }
+  if (isDeepSeek) body.thinking = { type: 'disabled' }
+  const content = await fetchContent(settings, body)
+  const parsed = JSON.parse(content) as NarratorTurn
+  const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
+  const narrative = sanitizeNarrative(rawNarrative)
+  if (!narrative) throw new Error('开局演绎返回空')
+  return { narrative, options: sanitizeOptions(parsed.options) }
+}
+
 /** 调用 OpenAI 兼容端点 */
 export async function callNarrator(
   settings: NarratorSettings,
