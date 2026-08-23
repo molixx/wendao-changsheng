@@ -251,7 +251,7 @@ export const useGame = create<GameStore>()(
         set({ busy: true, error: null, turnError: null })
         try {
           // 重建对话历史：玩家输入 + AI 回答成对回传，AI 才能记得自己说过什么
-          const history = log.slice(-8).flatMap((e) => [
+          const history = log.slice(-16).flatMap((e) => [
             { role: 'user' as const, content: e.action ?? `（回合 ${e.time}）` },
             // 空白叙事兜底：绝不让空内容进入 LLM 历史
             { role: 'assistant' as const, content: (e.narrative ?? '').trim() ? e.narrative : `（回合 ${e.time}，天道静默）` },

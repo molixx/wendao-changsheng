@@ -49,7 +49,7 @@ export function sanitizeOptions(list: { text?: string; tag?: string }[] | undefi
     if (!text || seen.has(text)) continue
     seen.add(text)
     out.push({ text, tag: o.tag })
-    if (out.length >= 8) break
+    if (out.length >= 12) break
   }
   return out
 }
@@ -70,7 +70,7 @@ ${worldSnapshot}
 你每回合必须且只能输出一个 JSON 对象（不要输出任何 JSON 之外的内容），格式：
 {
   "narrative": "剧情推进，篇幅不限，可充分展开情境、心理、对话与细节；必须是纯中文文字",
-  "options": [ {"text": "选项文字（长度、数量不限，通常 3~6 个）", "tag": "可选简短语义标签，自由发挥，如 平和/机缘/风险/情缘/魔道/凶险/隐秘"} ],
+  "options": [ {"text": "选项文字（长度、数量不限，一般 4~8 个）", "tag": "可选简短语义标签，自由发挥，如 平和/机缘/风险/情缘/魔道/凶险/隐秘"} ],
   "timePassedMonths": 1,
   "scene": "qingyu|xuanzi|zhusha|taofen|ziqi|liujin|tianqing|zhuqing",
   "deltas": {}
@@ -204,7 +204,7 @@ export async function narrateSystem(
         role: 'system',
         content: `${system}\n\n【本轮任务】玩家刚刚执行了一个行动，系统已按世界规则结算数值（玩家行动与结算结果见最后一条 user 消息）。请：
 1. 用修仙文风把结算结果演绎成剧情叙述：不要罗列数字清单、不要重复结算原文，直接写出情境、人物动作与细节，篇幅不限。
-2. 依据当前情境生成下一步选项（数量、长度不限，通常 3~6 个；可带简短语义标签，自由发挥）。
+2. 依据当前情境生成下一步选项（数量、长度不限（一般 4~8 个）；可带简短语义标签，自由发挥）。
 只输出一个 JSON 对象：{"narrative": "...", "options": [{"text": "...", "tag": "平和"}]}，narrative 必须为纯中文文字，不要输出 JSON 之外的任何内容。`,
       },
       ...history,
@@ -213,7 +213,7 @@ export async function narrateSystem(
     ],
     response_format: { type: 'json_object' },
     temperature: settings.temperature,
-    max_tokens: 2048,
+    max_tokens: 4096,
   }
   if (isDeepSeek) body.thinking = { type: 'disabled' }
   const content = await fetchContent(settings, body)
@@ -224,7 +224,7 @@ export async function narrateSystem(
     return { narrative, options: sanitizeOptions(parsed.options) }
   } catch {
     // 内容非 JSON：若可读则当纯文本叙事（系统指令侧由调用方回退模板叙事）
-    return { narrative: content.trim() ? sanitizeNarrative(content).slice(0, 800) : '', options: [] }
+    return { narrative: content.trim() ? sanitizeNarrative(content).slice(0, 1200) : '', options: [] }
   }
 }
 
@@ -241,14 +241,14 @@ export async function narrateOpening(
     messages: [
       {
         role: 'system',
-        content: `${system}\n\n【开局演绎】玩家刚刚创角完毕，等待你展开入世的第一幕。请以天道系统的口吻，依据玩家创角信息与所选开局剧本，用修仙文风自由展开开局情境（篇幅不限，充分写出氛围、细节与人物状态），并生成下一步选项（数量、长度不限，通常 3~6 个；可带简短语义标签，自由发挥）。
+        content: `${system}\n\n【开局演绎】玩家刚刚创角完毕，等待你展开入世的第一幕。请以天道系统的口吻，依据玩家创角信息与所选开局剧本，用修仙文风自由展开开局情境（篇幅不限，充分写出氛围、细节与人物状态），并生成下一步选项（数量、长度不限（一般 4~8 个）；可带简短语义标签，自由发挥）。
 只输出一个 JSON 对象：{"narrative": "...", "options": [{"text": "...", "tag": "平和"}]}，narrative 必须是纯中文文字，禁止任何 LaTeX / Markdown / HTML 标记。`,
       },
       { role: 'user', content: `创角信息：${characterSummary}\n开局剧本：${scriptDesc}` },
     ],
     response_format: { type: 'json_object' },
     temperature: settings.temperature,
-    max_tokens: 2048,
+    max_tokens: 4096,
   }
   if (isDeepSeek) body.thinking = { type: 'disabled' }
   const content = await fetchContent(settings, body)
@@ -267,7 +267,7 @@ export function fallbackNarrative(text: string): string {
   const cut = t.search(/"?\s*,?\s*[,}\]]|"options"/)
   if (cut > 0) t = t.slice(0, cut)
   t = t.replace(/"?\s*[,}\]]?\s*$/, '')
-  t = sanitizeNarrative(t).trim().slice(0, 600)
+  t = sanitizeNarrative(t).trim().slice(0, 1200)
   return t || '天道静默不语。'
 }
 
@@ -290,7 +290,7 @@ export async function callNarrator(
       model: settings.model,
       messages: v.messages,
       temperature: settings.temperature,
-      max_tokens: 2048,
+      max_tokens: 4096,
     }
     if (v.json) body.response_format = { type: 'json_object' }
     if (isDeepSeek) body.thinking = { type: 'disabled' }
