@@ -9,7 +9,7 @@ import { routeCommand, executeSystem, resolveOpening } from './actions'
 import { advanceTime, fmtTimeShort } from './time'
 import { WORLD_BIBLE } from '../data/worldview'
 import { NPCS } from '../data/world'
-import { ENLIGHTENMENT_BRANCHES, TECHNIQUES } from '../data/systems'
+import { ENLIGHTENMENT_BRANCHES, TECHNIQUES, INJURIES } from '../data/systems'
 
 export interface LogEntry {
   id: number
@@ -99,12 +99,18 @@ function toNumber(v: unknown): number | null {
   return null
 }
 
-/** 校验并应用 LLM 的数值变更：字段别名映射、增量/绝对值双语义、钳制、上限封顶、不为负 */
-export function applyDeltas(state: GameState, deltas?: Record<string, unknown>): { state: GameState; applied: string[] } {
+/** 校验并应用 LLM 的数值变更：字段别名映射、增量/绝对值双语义、钳制、上限封顶、不为负
+ *  mode='status'：系统指令回合专用——数值已由代码结算，只采纳状态类字段（伤势/异常/心境），防止双加 */
+export function applyDeltas(
+  state: GameState,
+  deltas?: Record<string, unknown>,
+  mode: 'full' | 'status' = 'full',
+): { state: GameState; applied: string[] } {
   if (!deltas) return { state, applied: [] }
   const res = { ...state.res }
   const applied: string[] = []
   for (const [key, raw] of Object.entries(deltas)) {
+    if (mode === 'status') break // 状态模式不处理数值字段
     const field = DELTA_ALIASES[key.toLowerCase ? key.toLowerCase() : key] ?? DELTA_ALIASES[key]
     if (!field || typeof field !== 'string') continue
     const v = toNumber(raw)
@@ -134,7 +140,7 @@ export function applyDeltas(state: GameState, deltas?: Record<string, unknown>):
     道心: 'daoxin', daoxin: 'daoxin', 仙缘: 'xianyuan', xianyuan: 'xianyuan',
   }
   const rawStats = deltas.stats ?? deltas.属性
-  if (rawStats && typeof rawStats === 'object') {
+  if (mode === 'full' && rawStats && typeof rawStats === 'object') {
     const stats = { ...s.player.stats }
     for (const [k, rv] of Object.entries(rawStats as Record<string, unknown>)) {
       const key = k.toLowerCase ? k.toLowerCase() : k
@@ -153,7 +159,7 @@ export function applyDeltas(state: GameState, deltas?: Record<string, unknown>):
   }
   // ── 好感（relationships，0~100，按 NPC 名/id）──
   const rawAff = deltas.affinity ?? deltas.好感 ?? deltas.relationships
-  if (rawAff && typeof rawAff === 'object') {
+  if (mode === 'full' && rawAff && typeof rawAff === 'object') {
     const rel = { ...s.relationships }
     for (const [k, rv] of Object.entries(rawAff as Record<string, unknown>)) {
       const npc = NPCS.find((n) => n.id === k || n.name === k || k.includes(n.name))
@@ -171,7 +177,7 @@ export function applyDeltas(state: GameState, deltas?: Record<string, unknown>):
   }
   // ── 背包物品（bag：正加负减，不为负）──
   const rawBag = deltas.bag ?? deltas.物品 ?? deltas.items
-  if (rawBag && typeof rawBag === 'object') {
+  if (mode === 'full' && rawBag && typeof rawBag === 'object') {
     const bag = { ...s.bag }
     for (const [k, rv] of Object.entries(rawBag as Record<string, unknown>)) {
       const v = toNumber(rv)
@@ -187,19 +193,27 @@ export function applyDeltas(state: GameState, deltas?: Record<string, unknown>):
     }
     s = { ...s, bag }
   }
-  // ── 异常状态（injury：字符串或 null 清除；status：附加/清空）──
+  // ── 异常状态（injury：中文名/id 或 null 清除；status：数组/字符串，附加/清空）──
   if ('injury' in deltas || '伤势' in deltas) {
     const raw = deltas.injury ?? deltas.伤势
-    const next = raw === null || raw === undefined || raw === '无' || raw === 'none' ? null : String(raw).slice(0, 20)
+    // 中文名/别名 → id（代码内部存 id，状态卡显示中文名）
+    let next: string | null = null
+    if (raw !== null && raw !== undefined && raw !== '无' && raw !== 'none' && raw !== '') {
+      const s = String(raw).slice(0, 20)
+      const hit = INJURIES.find((i) => i.id === s || i.name === s || i.name.split('/').includes(s) || (s === '中毒蛊' && i.id === 'poison') || (s === '心魔' && i.id === 'heart-demon'))
+      next = hit?.id ?? s // 未识别的名字原样保留（至少显示出来）
+    }
     if (next !== s.res.injury) {
       s = { ...s, res: { ...s.res, injury: next } }
-      applied.push(`状态 ${s.res.injury ?? '无'}→${next ?? '无'}`)
+      applied.push(`伤势 ${s.res.injury ?? '无'}→${next ?? '无'}`)
     }
   }
   if ('status' in deltas || '异常' in deltas) {
     const raw = deltas.status ?? deltas.异常
-    if (Array.isArray(raw)) {
-      const next = raw.map((x) => String(x).slice(0, 12)).filter(Boolean)
+    // 数组或单个字符串都接受；对象忽略
+    const list = Array.isArray(raw) ? raw : typeof raw === 'string' && raw.trim() ? [raw] : null
+    if (list) {
+      const next = list.map((x) => String(x).slice(0, 12)).filter(Boolean)
       s = { ...s, res: { ...s.res, statusEffects: [...new Set(next)] } }
       applied.push(`异常 ${next.join('、') || '无'}`)
     }
@@ -217,7 +231,7 @@ export function applyDeltas(state: GameState, deltas?: Record<string, unknown>):
   }
   // ── 悟道（enlightenment：1~9）／技艺（technique：1~5）──
   const rawEnl = deltas.enlightenment ?? deltas.悟道
-  if (rawEnl && typeof rawEnl === 'object') {
+  if (mode === 'full' && rawEnl && typeof rawEnl === 'object') {
     const enl = { ...s.enlightenment }
     for (const [k, rv] of Object.entries(rawEnl as Record<string, unknown>)) {
       const branch = ENLIGHTENMENT_BRANCHES.find((b) => b === k || k.includes(b) || b.includes(k))
@@ -234,7 +248,7 @@ export function applyDeltas(state: GameState, deltas?: Record<string, unknown>):
     s = { ...s, enlightenment: enl }
   }
   const rawTech = deltas.technique ?? deltas.技艺
-  if (rawTech && typeof rawTech === 'object') {
+  if (mode === 'full' && rawTech && typeof rawTech === 'object') {
     const tech = { ...s.techniqueLevels }
     for (const [k, rv] of Object.entries(rawTech as Record<string, unknown>)) {
       const t = TECHNIQUES.find((x) => x.id === k || x.name === k || k.includes(x.name))
@@ -312,6 +326,10 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
         if (options.length === 0) options = sys.options
         // AI 返回的时间就是时间：返回多少推进多少；未返回 → 0（不流逝）
         timePassedMonths = typeof narrated.timePassedMonths === 'number' ? Math.max(0, Math.min(12, narrated.timePassedMonths)) : 0
+        // 系统指令数值已由代码结算；AI deltas 只采纳状态类字段（伤势/异常/心境），防止双加
+        const applied = applyDeltas(nextState, narrated.deltas, 'status')
+        nextState = applied.state
+        deltas = applied.applied
         engine = 'llm'
       } catch (e) {
         // 真断网 → 离线冻结（抛给调用方停留+重试）；AI 业务失败（空内容/超时/服务错误）→ 系统指令回退代码结算叙事（数值一致，不编剧情）
@@ -322,7 +340,6 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
         engine = 'code'
       }
       scene = sys.scene
-      deltas = []
     } else {
       isFree = true
     }

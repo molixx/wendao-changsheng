@@ -4,7 +4,7 @@ import type { GameState } from '../game/state'
 import { fmtTimeShort, seasonOf } from '../game/engine/time'
 import { Panel, Bar, Chip, GoldLine } from './Panel'
 import { VALUE_COLORS, ELEMENT_COLORS } from './theme'
-import { GONGFAS, TECHNIQUES, FATE_CHANGES } from '../game/data/systems'
+import { GONGFAS, TECHNIQUES, FATE_CHANGES, INJURIES } from '../game/data/systems'
 import { ORIGINS, TALENTS, PHYSIQUES, DAO_PATHS, SPIRIT_ROOTS } from '../game/data/creation'
 
 interface Props {
@@ -54,7 +54,7 @@ export function StatusCard({ game, spiritRootElements = [], location = '未知' 
   if (game.flags.spiritBeast) dyn.push('灵兽认主')
   if (game.flags.secretRealmOpen) dyn.push('秘境现世')
   if (game.flags.combat) dyn.push('战斗中')
-  if (r.injury) dyn.push(r.injury)
+  if (r.injury) dyn.push(INJURIES.find((i) => i.id === r.injury)?.name ?? r.injury)
   dyn.push(...r.statusEffects)
 
   // 战斗派生属性（与战斗模块口径一致）
