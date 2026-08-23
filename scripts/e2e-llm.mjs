@@ -73,11 +73,12 @@ const check = (n, c, d = '') => { if (c) { pass++; console.log(`  ✅ ${n}`) } e
   const modalText = await p.textContent('div.fixed')
   check('两次自由输入的记录都在（历史弹窗）', !!modalText?.includes('我想去后山') && !!modalText?.includes('我想向路过的老修士'))
   // 提取两次自由输入的叙事段落并比较（应不同，证明 AI 有上下文而非重复模板）
+  const mt = modalText ?? ''
   const seg = (action) => {
-    const i = modalText?.indexOf(action) ?? -1
+    const i = mt.indexOf(action)
     if (i < 0) return ''
-    const j = modalText!.indexOf('「', i + action.length)
-    return modalText!.slice(i, j > 0 ? j : i + 300).replace(/天道|结算|离线|入道[^「]*/g, '').trim()
+    const j = mt.indexOf('「', i + action.length)
+    return mt.slice(i, j > 0 ? j : i + 300).replace(/天道|结算|离线|入道[^「]*/g, '').trim()
   }
   const n1 = seg('我想去后山')
   const n2 = seg('我想向路过的老修士')
