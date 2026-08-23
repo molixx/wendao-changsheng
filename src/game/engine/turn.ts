@@ -110,18 +110,34 @@ export function applyDeltas(
   if (!deltas) return { state, applied: [] }
   const res = { ...state.res }
   const applied: string[] = []
+  // 已知字段集合（含别名与子对象键）：用于识别「AI 写了但代码未采纳」的字段，避免静默丢失
+  const KNOWN_KEYS = new Set([
+    ...Object.keys(DELTA_ALIASES),
+    'stats', '属性', 'affinity', '好感', 'relationships',
+    'bag', '物品', 'items', 'injury', '伤势', 'status', '异常',
+    'mood', '心境', 'enlightenment', '悟道', 'technique', '技艺',
+    'location', '所在地', 'mainQuest', '主线',
+  ])
+  const unknownKeys = Object.keys(deltas).filter((k) => !KNOWN_KEYS.has(k))
+  if (unknownKeys.length > 0) {
+    applied.push(`⚠ 未采纳字段：${unknownKeys.slice(0, 5).join('、')}`)
+  }
   for (const [key, raw] of Object.entries(deltas)) {
     if (mode === 'status') break // 状态模式不处理数值字段
     const field = DELTA_ALIASES[key.toLowerCase ? key.toLowerCase() : key] ?? DELTA_ALIASES[key]
     if (!field || typeof field !== 'string') continue
     const v = toNumber(raw)
     if (v === null || v === 0) continue
+    // 字符串带「+」前缀 = 显式增量（如 "+20"），无论大小一律按增量处理，
+    // 避免「当前 100 时 AI 想 +20 写 hp:20 被当成绝对值设为 20」的误判
+    const explicitIncrement = typeof raw === 'string' && /^\s*\+/.test(raw)
     const before = res[field as keyof typeof res] as number
     const max = (res[`${field}Max` as keyof typeof res] ?? Infinity) as number
     let next: number
     if (RANGED_FIELDS.has(field)) {
-      // 0~max 字段：负值=增量减；正值>当前=增量加（封顶）；0<=正值<=当前=绝对值（设为该值，模型常把"剩余值"写成绝对值）
-      next = v < 0 ? before + v : v > before ? Math.min(before + v, max) : v
+      // 0~max 字段：负值=增量减；显式 "+N"=增量加（封顶）；
+      // 裸正值>当前=增量加（封顶）；裸 0<=正值<=当前=绝对值（设为该值，模型常把"剩余值"写成绝对值）
+      next = v < 0 || explicitIncrement ? before + v : v > before ? Math.min(before + v, max) : v
       next = Math.max(0, Math.min(next, max))
     } else {
       // 无上限字段（灵石/功德/业力）：增量语义（负减正加）
