@@ -358,62 +358,12 @@ export function applyAging(state: GameState, months: number): GameState {
   return { ...state, player: { ...state.player, age }, res, flags }
 }
 
-/** 中文数字（一~九十九/阿拉伯数字）转数值 */
-function cnToNum(s: string): number | null {
-  if (/^\d+$/.test(s)) return Number(s)
-  const digits: Record<string, number> = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 }
-  if (s === '十') return 10
-  if (s.length === 2 && s[0] === '十') return 10 + (digits[s[1]] ?? 0)
-  if (s.length === 2 && s[1] === '十') return (digits[s[0]] ?? 0) * 10
-  if (s.length === 3 && s[1] === '十') return (digits[s[0]] ?? 0) * 10 + (digits[s[2]] ?? 0)
-  return digits[s] ?? null
-}
-
-/** 从一句话文本（summary）解析时间流逝：AI 写 summary 时被要求必须包含时间描述（闭关三月/赶路数日/瞬时空闲），
- *  解析得到本回合流逝月数。一句话歧义远小于长叙事（无时间行/纪年干扰），且排除时节（三月桃花）与回溯（三年前）。 */
-export function inferMonthsFromText(text: string): number {
-  if (!text) return 0
-  const t = text
-    .replace(/天玄历\s*[一二三四五六七八九十百千万两\d]+\s*年/g, ' ')
-    .replace(/入道\s*第?[一二三四五六七八九十百千万两元\d]+\s*年/g, ' ')
-    .replace(/[\u4e00-\u9fa5]{1,4}元\s*年/g, ' ')
-    .replace(/[一二三四五六七八九十百千万两\d]+年[前以前]/g, ' ')
-  // 年：N年 → N×12（封顶 12）
-  for (const m of t.matchAll(/([一二三四五六七八九十两\d]+)\s*年/g)) {
-    const n = cnToNum(m[1])
-    if (n && n >= 1 && !/一度/.test(t)) return Math.min(12, n * 12)
-  }
-  // 半年/数月/半月/月余
-  if (/半年/.test(t)) return 6
-  if (/数月|几月/.test(t)) return 2.5
-  if (/半月/.test(t)) return 0.5
-  if (/月余/.test(t)) return 1.2
-  // 裸「N月」歧义大（三月桃花=时节）：只认带「个」的（三个月）或前有行为词/后有流逝词的
-  const DUR_BEFORE = /(闭关|苦修|修炼|打坐|参悟|悟道|疗伤|养伤|赶路|游历|历练|云游|静养|守候|等待|滞留|炼丹|炼器|外出|跋涉|整整|足足|一晃|转眼)/
-  const DUR_AFTER = /(后|之后|过去|光景|之久|流逝|倏忽|弹指|眨眼)/
-  for (const m of t.matchAll(/([一二三四五六七八九十两\d]+)\s*(?:个)?月/g)) {
-    const n = cnToNum(m[1])
-    if (!n || n < 1 || n > 12) continue
-    const bare = !m[0].includes('个')
-    if (bare) {
-      const before = t.slice(Math.max(0, m.index! - 2), m.index!)
-      const after = t.slice(m.index! + m[0].length, m.index! + m[0].length + 2)
-      if (!DUR_BEFORE.test(before) && !DUR_AFTER.test(after)) continue
-    }
-    return n
-  }
-  // 数日/数天 ≈ 0.3（不足一月，跨回合累积）
-  if (/数日|几日|数天|几天/.test(t)) return 0.3
-  return 0
-}
-
-/** 时间口径：以 summary 中的时间描述为准（AI 被要求必写）——解析 summary 得月数；
- *  AI 单独返回的 timePassedMonths 仅作兜底（summary 未写时间时） */
-function settleTime(aiMonths: number | undefined, summary: string): number {
-  const fromSummary = inferMonthsFromText(summary)
-  if (fromSummary > 0) return fromSummary
-  if (typeof aiMonths === 'number' && aiMonths > 0) return Math.max(0, Math.min(12, aiMonths))
-  return 0
+/** 时间口径（用户定案：全盘交给 AI）——AI 返回的 timePassedMonths 是唯一时间来源：
+ *  返回多少推进多少，未返回/返回 0/NaN → 0（不流逝），钳制 0~12。
+ *  唯一例外：显式「闭关 N 月/N 年」由代码解析（玩家明确输入，非 AI 叙述）。 */
+function settleTime(aiMonths: unknown): number {
+  const n = typeof aiMonths === 'number' && Number.isFinite(aiMonths) ? aiMonths : 0
+  return Math.max(0, Math.min(12, n))
 }
 
 /** 主入口：执行一个回合（LLM 失败即抛出，由调用方停留+重试，绝不生成替代内容） */
@@ -448,8 +398,10 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
         summary = narrated.summary
         options = sanitizeOptions(narrated.options)
         if (options.length === 0) options = sys.options
-        // 时间口径：AI 返回为主；AI 未给/给 0 但叙事提到明确时长 → 兜底折算
-        timePassedMonths = settleTime(narrated.timePassedMonths, narrated.summary ?? narrative)
+        // 时间：全盘交给 AI 的 timePassedMonths；唯一例外——显式「闭关 N 月/年」由代码解析（玩家明确输入）
+        timePassedMonths = cmd.kind === 'cultivate' && typeof cmd.months === 'number'
+          ? cmd.months
+          : settleTime(narrated.timePassedMonths)
         // 系统指令数值已由代码结算；AI deltas 只采纳状态类字段（伤势/异常/心境），防止双加
         rawDeltas = narrated.deltas
         const applied = applyDeltas(nextState, narrated.deltas, 'status')
@@ -486,8 +438,8 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       const applied = applyDeltas(nextState, result.deltas)
       nextState = applied.state
       deltas = applied.applied
-      // 时间口径：AI 返回为主；AI 未给/给 0 但叙事提到明确时长 → 兜底折算
-      timePassedMonths = settleTime(result.timePassedMonths, result.summary ?? result.narrative)
+      // 时间：全盘交给 AI 的 timePassedMonths（返回多少推进多少，未返回/0 → 不流逝）
+      timePassedMonths = settleTime(result.timePassedMonths)
       engine = 'llm'
     } catch (e) {
       // 真断网 → 冻结（抛给调用方停留+重试）；业务失败（多次重试仍空白/报错）→ 最小化续行，保证游戏可继续
