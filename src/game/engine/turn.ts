@@ -357,7 +357,8 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
   let narrative = ''
   let options: { text: string; tag?: string }[] = []
   let scene: SceneThemeKey | undefined
-  let timePassedMonths = 1
+  // 时间流逝默认 0：只有明确的时间流逝（代码结算 / 叙事推理 / 叙事短语）才会推进，绝不默认 +1
+  let timePassedMonths = 0
   let deltas: string[] = []
   let engine: TurnOutput['engine'] = 'code'
   let nextState = input.state
@@ -374,21 +375,16 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
         narrative = narrated.narrative || codeNarrative
         options = sanitizeOptions(narrated.options)
         if (options.length === 0) options = sys.options
-        // 系统指令的时间：显式闭关时长（闭关 N 月/年）以输入为准（数值与时间一致）；
-        // 其余由 AI 决定（AI 未给时退回代码结算值）
-        if (cmd.kind === 'cultivate') {
-          timePassedMonths = sys.timePassedMonths
-        } else if (typeof narrated.timePassedMonths === 'number') {
-          timePassedMonths = Math.max(0, Math.min(12, narrated.timePassedMonths))
-        } else {
-          timePassedMonths = sys.timePassedMonths
-        }
+        // 系统指令的时间流逝以代码结算为准（修炼 1 月/闭关 N 月/坊市 0 月等），
+        // AI 的 timePassedMonths 不覆盖——代码是唯一数值权威，杜绝模型惯性 +1
+        timePassedMonths = sys.timePassedMonths
         engine = 'llm'
       } catch (e) {
         // 真断网 → 离线冻结（抛给调用方停留+重试）；AI 业务失败（空内容/超时/服务错误）→ 系统指令回退代码结算叙事（数值一致，不编剧情）
         if (isOfflineError(e)) throw e
         narrative = codeNarrative
         options = sys.options
+        timePassedMonths = sys.timePassedMonths
         engine = 'code'
       }
       scene = sys.scene
@@ -408,15 +404,15 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       narrative = result.narrative
       options = sanitizeOptions(result.options)
       scene = result.scene as SceneThemeKey | undefined
-      timePassedMonths = Math.max(0, Math.min(12, Number(result.timePassedMonths) || 0))
       const applied = applyDeltas(nextState, result.deltas)
       nextState = applied.state
       deltas = applied.applied
-      // 智能时间流逝：① AI 明确给的月数优先；② AI 没给但叙事里提到「几日/半月/数月」等 → 自动折算小额月数（小数月跨回合累积）；
+      // 自由行动的时间流逝：① 叙事短语推理（代码解析文本，最可靠）优先；
+      // ② AI 声明的月数仅当 >1 且叙事未推理到时采信（AI 惯性给 1 一律视为 0，杜绝每回合 +1）；
       // ③ 都没提 → 小概率 20% 消磨 1 个月（琐事如常，岁月如流）
-      if (timePassedMonths === 0) {
-        timePassedMonths = inferTimeFromNarrative(result.narrative)
-      }
+      const inferred = inferTimeFromNarrative(result.narrative)
+      const aiMonths = Math.max(0, Math.min(12, Number(result.timePassedMonths) || 0))
+      timePassedMonths = inferred > 0 ? inferred : aiMonths > 1 ? aiMonths : 0
       if (timePassedMonths === 0 && chance(0.2)) timePassedMonths = 1
       engine = 'llm'
     } catch (e) {
@@ -427,6 +423,8 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
         { text: '重试演绎', tag: '平和' },
         { text: '回到主剧情', tag: '平和' },
       ]
+      // 失败续行回合不流逝时间（叙事未展开，无时间流逝依据）
+      timePassedMonths = 0
       engine = 'code'
     }
   }
