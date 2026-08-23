@@ -4,7 +4,7 @@
 import type { GameState } from '../state'
 import type { NarratorSettings } from '../state'
 import type { SceneThemeKey } from '../../ui/theme'
-import { callNarrator, narrateSystem, sanitizeOptions, buildSystemPrompt } from '../narrator/llm'
+import { callNarrator, narrateSystem, sanitizeOptions, buildSystemPrompt, isOfflineError } from '../narrator/llm'
 import { routeCommand, executeSystem, resolveOpening } from './actions'
 import { advanceTime, fmtTimeShort } from './time'
 import { WORLD_BIBLE } from '../data/worldview'
@@ -109,11 +109,19 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       const codeNarrative = sys.narrative
       if (!useLlm) throw new Error('未配置叙事引擎：请到「叙事引擎设置」配置 API Key 后继续')
       const system = buildSystemPrompt(WORLD_BIBLE, buildWorldSnapshot(input.state))
-      const narrated = await narrateSystem(settings, system, input.history, input.action, codeNarrative)
-      narrative = narrated.narrative || codeNarrative
-      options = sanitizeOptions(narrated.options)
-      if (options.length === 0) options = sys.options
-      engine = 'llm'
+      try {
+        const narrated = await narrateSystem(settings, system, input.history, input.action, codeNarrative)
+        narrative = narrated.narrative || codeNarrative
+        options = sanitizeOptions(narrated.options)
+        if (options.length === 0) options = sys.options
+        engine = 'llm'
+      } catch (e) {
+        // 真断网 → 离线冻结（抛给调用方停留+重试）；AI 业务失败（空内容/超时/服务错误）→ 系统指令回退代码结算叙事（数值一致，不编剧情）
+        if (isOfflineError(e)) throw e
+        narrative = codeNarrative
+        options = sys.options
+        engine = 'code'
+      }
       scene = sys.scene
       timePassedMonths = sys.timePassedMonths
       deltas = []

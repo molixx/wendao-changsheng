@@ -145,7 +145,7 @@ export function isOfflineError(e: unknown): boolean {
 async function fetchContent(settings: NarratorSettings, body: Record<string, unknown>): Promise<string> {
   const base = settings.baseUrl.replace(/\/+$/, '')
   let lastErr: Error | null = null
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 30000)
     try {
