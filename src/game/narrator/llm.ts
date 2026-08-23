@@ -358,21 +358,21 @@ export async function callNarrator(
       const trimmed = content.trim()
       let narrative = ''
       let summary: string | undefined
+      let months: number | undefined
       let opts: { text: string; tag?: string }[] = []
       try {
         const parsed = parseJsonContent(trimmed) as NarratorTurn
         if (parsed && typeof parsed.narrative === 'string') {
           narrative = sanitizeNarrative(parsed.narrative)
           summary = sanitizeSummary(parsed.summary)
+          months = typeof parsed.timePassedMonths === 'number' ? Math.max(0, Math.min(12, parsed.timePassedMonths)) : undefined
           opts = sanitizeOptions(parsed.options)
         }
       } catch {
         /* 非 JSON → 走纯文本 */
       }
       if (!narrative) narrative = fallbackNarrative(trimmed)
-      // 降级档无法解析结构化时间：不设置 timePassedMonths（undefined），由调用方走叙事短语推理 + 小概率兜底，
-      // 绝不明文 +1（否则每回合都流逝一个月）
-      return { narrative, summary, options: opts }
+      return { narrative, summary, options: opts, timePassedMonths: months }
     } catch (e) {
       if (isOfflineError(e)) throw e // 真断网：不降级，交给调用方冻结
       lastErr = e instanceof Error ? e : new Error(String(e))
