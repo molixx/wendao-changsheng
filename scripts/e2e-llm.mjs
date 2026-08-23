@@ -60,7 +60,11 @@ const check = (n, c, d = '') => { if (c) { pass++; console.log(`  ✅ ${n}`) } e
 
   // 2) 系统指令（修炼）→ 也应调 API（代码结算 + AI 演绎）
   apiCalls.length = 0
-  await doAction(p, '修炼')
+  await doAction(p, '修炼', 3000)
+  // 等待修炼回合卡片出现（LLM 偶发较慢，最长 30s）
+  await p
+    .waitForFunction(() => document.querySelector('main article')?.textContent?.includes('修炼'), null, { timeout: 30000 })
+    .catch(() => {})
   check('系统指令（修炼）也调用了 API', apiCalls.length >= 1, `调用次数=${apiCalls.length}`)
   body = await p.textContent('body')
   // AI 偶发失败时会正确回退代码叙事（结算标签）——叙事非空 + 标签为 天道/结算 即算通过（API 调用已单独断言）
