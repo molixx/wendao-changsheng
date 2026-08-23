@@ -55,8 +55,9 @@ export function Chip({ text, color }: { text: string; color?: string }) {
   return <span className="chip" style={{ background: color ?? 'var(--theme-color)' }}>{text}</span>
 }
 
-/** 语义标签 */
+/** 语义标签（AI 自由发挥；未知标签用中性样式） */
 export function Tag({ text }: { text: string }) {
   const cls: Record<string, string> = { 平和: 'pinghe', 机缘: 'jiyuan', 风险: 'fengxian', 情缘: 'qingyuan', 魔道: 'modao' }
-  return <span className={`tag tag--${cls[text] ?? 'pinghe'}`}>{text}</span>
+  const known = cls[text]
+  return known ? <span className={`tag tag--${known}`}>{text}</span> : <span className="tag" style={{ background: '#8C8578' }}>{text}</span>
 }
