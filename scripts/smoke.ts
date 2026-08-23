@@ -48,12 +48,15 @@ async function main() {
   check('状态不可变', c.state !== s0)
   check('时间推进 1 月', c.state.timeline.month === s0.timeline.month + 1 || (c.state.timeline.year === s0.timeline.year + 1 && c.state.timeline.month === 1))
 
-  console.log('\n== 4. 回合管线（离线） ==')
+  console.log('\n== 4. 回合管线（无 Key → 失败即停留，不生成替代内容） ==')
   const off = DEFAULT_SETTINGS
   const t1 = await resolveTurn({ state: s0, action: '修炼', history: [] }, { ...off, useLlm: false })
-  check('回合+1', t1.state.turn === 1)
-  check('叙事非空', t1.narrative.length > 0, t1.narrative.slice(0, 40))
-  check('有选项', t1.options.length >= 3)
+    .then(() => null)
+    .catch((e) => e as Error)
+  check('无 Key 时回合被拦截（失败即停留）', t1 instanceof Error && /未配置叙事引擎/.test(t1.message), t1 instanceof Error ? t1.message : '未抛错')
+  // 系统指令的代码结算仍可直接调用（引擎层不依赖 LLM）
+  const sys = executeSystem(routeCommand('修炼'), s0, [])
+  check('系统指令代码结算仍可用', !!sys && sys.narrative.length > 0)
 
   console.log('\n== 5. 坊市 ==')
   const items = marketList()

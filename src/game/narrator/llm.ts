@@ -129,25 +129,49 @@ export async function testConnection(
   }
 }
 
+/** 网络级错误：断网/请求发不出/超时 → 触发"离线冻结" */
+export class OfflineError extends Error {
+  constructor(msg = '网络离线，无法连接叙事引擎') {
+    super(msg)
+    this.name = 'OfflineError'
+  }
+}
+
+export function isOfflineError(e: unknown): boolean {
+  return e instanceof OfflineError
+}
+
 /** 发起一次补全请求并取回 content 文本；空内容（模型偶发）自动重试一次 */
 async function fetchContent(settings: NarratorSettings, body: Record<string, unknown>): Promise<string> {
   const base = settings.baseUrl.replace(/\/+$/, '')
   let lastErr: Error | null = null
   for (let attempt = 0; attempt < 2; attempt++) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 30000)
     try {
       const res = await fetch(`${base}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}` },
         body: JSON.stringify(body),
+        signal: controller.signal,
       })
+      clearTimeout(timer)
       if (!res.ok) throw new Error(`HTTP ${res.status}：${(await res.text()).slice(0, 200)}`)
       const data = (await res.json()) as { choices?: { message?: { content?: string } }[] }
       const content = data.choices?.[0]?.message?.content ?? ''
       if (content.trim()) return content
       lastErr = new Error('LLM 返回为空内容')
     } catch (e) {
-      lastErr = e instanceof Error ? e : new Error(String(e))
-      if (!/返回为空|Failed to fetch|NetworkError/i.test(lastErr.message)) throw lastErr // 网络级错误不重试
+      clearTimeout(timer)
+      // TypeError = 网络断（fetch 发不出）→ 离线冻结；AbortError = 超时 → 业务错误（可重试，不算离线）
+      if (e instanceof TypeError) lastErr = new OfflineError()
+      else if (e instanceof DOMException && e.name === 'AbortError') lastErr = new Error('叙事引擎响应超时（30 秒），请重试')
+      else if (e instanceof OfflineError) lastErr = e
+      else lastErr = e instanceof Error ? e : new Error(String(e))
+      if (!(lastErr instanceof OfflineError) && !/返回为空|超时/.test(lastErr.message)) {
+        throw lastErr // HTTP 业务错误不重试
+      }
+      if (lastErr instanceof OfflineError) break // 断网重试无意义
     }
   }
   throw lastErr ?? new Error('LLM 请求失败')
@@ -258,7 +282,7 @@ export async function callNarrator(
   } catch (e) {
     if (e instanceof SyntaxError) {
       // 兜底：内容不是合法 JSON 时退化为纯文本回合
-      return { narrative: sanitizeNarrative(content).slice(0, 200), options: [], timePassedMonths: 1 }
+      return { narrative: sanitizeNarrative(content).trim().slice(0, 200) || '天道静默不语。', options: [], timePassedMonths: 1 }
     }
     throw e
   }

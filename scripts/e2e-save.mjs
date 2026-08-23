@@ -32,11 +32,37 @@ const create = async () => {
   await p.waitForTimeout(700)
 }
 const act = async (t) => {
+  const prev = (await p.locator('main article').textContent().catch(() => '')) ?? ''
   await p.fill('input[placeholder*="输入你的行动"]', t)
   await p.keyboard.press('Enter')
-  await p.waitForTimeout(800)
+  // 等待新回合卡片出现（LLM 叙事，最长 30s）
+  await p
+    .waitForFunction(
+      (prevText) => {
+        const el = document.querySelector('main article')
+        const cur = el?.textContent ?? ''
+        return cur !== prevText && cur.includes('「') && cur.trim().length > 20
+      },
+      prev,
+      { timeout: 30000 },
+    )
+    .catch(() => {})
+  await p.waitForTimeout(500)
 }
 const turnNo = async () => (await p.textContent('body')).match(/回合 #(\d+)/)?.[1]
+
+// 配置 Key（游戏现要求联网叙事）
+const DS_KEY = process.env.DS_KEY ?? ''
+if (!DS_KEY) {
+  console.log('❌ 需要 DS_KEY 环境变量（叙事引擎已不再离线兜底）')
+  process.exit(1)
+}
+await p.goto('http://localhost:5173/', { waitUntil: 'networkidle' })
+await p.getByRole('button', { name: '叙事引擎设置', exact: true }).click()
+await p.waitForTimeout(400)
+await p.locator('input[type="password"]').fill(DS_KEY)
+await p.getByRole('button', { name: '保存', exact: true }).click()
+await p.waitForTimeout(600)
 
 await create()
 await act('修炼')

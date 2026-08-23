@@ -80,6 +80,7 @@ export function routeCommand(input: string): Command {
   }
   if (/疗伤|养伤|治疗/.test(a)) return { kind: 'heal' }
   if (/帮助|指令|help/.test(a)) return { kind: 'help' }
+  if (/回到主剧情|回到主线|继续剧情/.test(a)) return { kind: 'free' }
   if (/游历|探索|出门|地图|秘境|下山/.test(a)) return { kind: 'travel' }
   if (/劫掠|夺宝|拦路/.test(a)) return { kind: 'robbery' }
   // 提到 NPC 名字 → 情缘互动（赠礼/论道/同游/表白/疏远）
@@ -108,7 +109,7 @@ export interface SystemResult {
 
 const CMD_OPTIONS = (extra: { text: string; tag?: string }[] = []): { text: string; tag?: string }[] => [
   ...extra,
-  
+  { text: '回到主剧情', tag: '平和' },
 ]
 
 /** 在战斗中：任何行动先进战斗指令 */

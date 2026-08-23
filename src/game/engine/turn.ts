@@ -5,7 +5,6 @@ import type { GameState } from '../state'
 import type { NarratorSettings } from '../state'
 import type { SceneThemeKey } from '../../ui/theme'
 import { callNarrator, narrateSystem, sanitizeOptions, buildSystemPrompt } from '../narrator/llm'
-import { resolveOffline } from './offline'
 import { routeCommand, executeSystem, resolveOpening } from './actions'
 import { advanceTime, fmtTimeShort } from './time'
 import { WORLD_BIBLE } from '../data/worldview'
@@ -64,10 +63,36 @@ export function buildWorldSnapshot(state: GameState): string {
   ].join('\n')
 }
 
-/** 主入口：执行一个回合 */
+/** deltas 白名单与标签 */
+const DELTA_FIELDS = ['hp', 'mp', 'cult', 'spirit', 'merit', 'karma'] as const
+const DELTA_LABELS: Record<string, string> = { hp: '气血', mp: '灵力', cult: '修为', spirit: '灵石', merit: '功德', karma: '业力' }
+
+/** 校验并应用 LLM 的数值变更（白名单字段、钳制、上限封顶、不为负）；越界/非法忽略 */
+export function applyDeltas(state: GameState, deltas?: Record<string, number>): { state: GameState; applied: string[] } {
+  if (!deltas) return { state, applied: [] }
+  const res = { ...state.res }
+  const applied: string[] = []
+  for (const f of DELTA_FIELDS) {
+    const v = deltas[f]
+    if (typeof v !== 'number' || !Number.isFinite(v) || v === 0) continue
+    const before = res[f]
+    let next = before + Math.round(v)
+    if (f === 'hp' || f === 'mp') next = Math.max(0, Math.min(next, res[`${f}Max`] as number))
+    else if (f === 'cult') next = Math.max(0, Math.min(next, res.cultMax))
+    else next = Math.max(0, next)
+    if (next !== before) {
+      res[f] = next
+      applied.push(`${DELTA_LABELS[f]} ${v > 0 ? '+' : ''}${v}`)
+    }
+  }
+  return applied.length ? { state: { ...state, res }, applied } : { state, applied: [] }
+}
+
+/** 主入口：执行一个回合（LLM 失败即抛出，由调用方停留+重试，绝不生成替代内容） */
 export async function resolveTurn(input: TurnInput, settings: NarratorSettings): Promise<TurnOutput> {
   const cmd = routeCommand(input.action)
   const useLlm = settings.useLlm && settings.apiKey.length > 0
+  const isStoryResume = /回到主剧情|回到主线|继续剧情/.test(input.action)
   let isFree = cmd.kind === 'free'
   let narrative = ''
   let options: { text: string; tag?: string }[] = []
@@ -82,25 +107,13 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
     if (sys) {
       nextState = sys.state
       const codeNarrative = sys.narrative
-      // 代码管数值、LLM 管叙事与选项：系统指令在 LLM 可用时也由 AI 演绎 + 生成情境选项
-      if (useLlm) {
-        try {
-          const system = buildSystemPrompt(WORLD_BIBLE, buildWorldSnapshot(input.state))
-          const narrated = await narrateSystem(settings, system, input.history, input.action, codeNarrative)
-          narrative = narrated.narrative || codeNarrative
-          options = sanitizeOptions(narrated.options)
-          if (options.length === 0) options = sys.options // AI 没给选项时回退模板保底
-          engine = 'llm'
-        } catch {
-          narrative = codeNarrative
-          options = sys.options
-          engine = 'code'
-        }
-      } else {
-        narrative = codeNarrative
-        options = sys.options
-        engine = 'code'
-      }
+      if (!useLlm) throw new Error('未配置叙事引擎：请到「叙事引擎设置」配置 API Key 后继续')
+      const system = buildSystemPrompt(WORLD_BIBLE, buildWorldSnapshot(input.state))
+      const narrated = await narrateSystem(settings, system, input.history, input.action, codeNarrative)
+      narrative = narrated.narrative || codeNarrative
+      options = sanitizeOptions(narrated.options)
+      if (options.length === 0) options = sys.options
+      engine = 'llm'
       scene = sys.scene
       timePassedMonths = sys.timePassedMonths
       deltas = []
@@ -110,38 +123,30 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
   }
 
   if (isFree) {
-    if (useLlm) {
-      try {
-        const system = buildSystemPrompt(WORLD_BIBLE, buildWorldSnapshot(input.state))
-        const result = await callNarrator(settings, system, input.history, input.action)
-        narrative = result.narrative
-        options = sanitizeOptions(result.options)
-        scene = result.scene as SceneThemeKey | undefined
-        timePassedMonths = Math.max(1, Math.min(12, result.timePassedMonths ?? 1))
-        deltas = result.deltas ? Object.entries(result.deltas).map(([k, v]) => `${k} ${v > 0 ? '+' : ''}${v}`) : []
-        engine = 'llm'
-      } catch (e) {
-        const offline = resolveOffline(input.state, input.action)
-        narrative = `【叙事引擎降级为离线模式】${offline.narrative}`
-        options = offline.options
-        scene = offline.scene
-        timePassedMonths = offline.timePassedMonths
-        deltas = []
-        engine = 'offline'
-      }
-    } else {
-      const offline = resolveOffline(input.state, input.action)
-      narrative = offline.narrative
-      options = offline.options
-      scene = offline.scene
-      timePassedMonths = offline.timePassedMonths
-      deltas = []
-      engine = 'offline'
-    }
+    if (!useLlm) throw new Error('未配置叙事引擎：请到「叙事引擎设置」配置 API Key 后继续')
+    const system = buildSystemPrompt(WORLD_BIBLE, buildWorldSnapshot(input.state))
+    // 「回到主剧情」等指令：提示 AI 自然接续主线
+    const llmAction = isStoryResume ? `${input.action}（你已处理完手头事务，请自然接续当前主线剧情，不要新开一条剧情线）` : input.action
+    const result = await callNarrator(settings, system, input.history, llmAction)
+    narrative = result.narrative
+    options = sanitizeOptions(result.options)
+    scene = result.scene as SceneThemeKey | undefined
+    timePassedMonths = Math.max(1, Math.min(12, result.timePassedMonths ?? 1))
+    const applied = applyDeltas(nextState, result.deltas)
+    nextState = applied.state
+    deltas = applied.applied
+    engine = 'llm'
   }
+
+  // 叙事兜底：任何路径都不允许空白叙事（否则会污染后续 LLM 历史）
+  if (!narrative || !narrative.trim()) narrative = '天道静默不语，只是静静注视着你。'
 
   // 时间推进（代码权威；战斗回合不流逝时间）
   const newTimeline = advanceTime(input.state.timeline, timePassedMonths)
+  // 每个回合固定提供「回到主剧情」入口（未在选项中时追加）
+  if (!options.some((o) => o.text.includes('回到主剧情'))) {
+    options = [...options, { text: '回到主剧情', tag: '平和' }]
+  }
   const newState: GameState = {
     ...nextState,
     timeline: newTimeline,

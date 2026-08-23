@@ -80,7 +80,7 @@ function EntryCard({
 }
 
 export function StoryLog() {
-  const { log, busy, error, submitAction, clearError } = useGame()
+  const { log, busy, error, submitAction, clearError, turnError } = useGame()
   const [historyOpen, setHistoryOpen] = useState(false)
   const [freeOpen, setFreeOpen] = useState(false)
   const [freeText, setFreeText] = useState('')
@@ -97,6 +97,32 @@ export function StoryLog() {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* 回合执行失败（AI 报错/离线/未配置）→ 停留当前卡片，手动重试 */}
+      {turnError && (
+        <div className={`panel ${turnError.offline ? 'panel--warn' : 'panel--warn'} px-4 py-3`}>
+          <p className="danger-line">
+            {turnError.offline ? '📡 网络离线，剧情暂停' : '⚠ 天道推演失败'}：{turnError.message}
+          </p>
+          <p className="cmdline mt-1 text-xs">当前回合未推进，可手动重试。</p>
+          <div className="mt-2 flex gap-2">
+            <button
+              onClick={() => submitAction(turnError.action)}
+              disabled={busy}
+              className="rounded-lg bg-[color:var(--theme-color)] px-4 py-1.5 text-sm font-bold text-white disabled:opacity-40"
+            >
+              {busy ? '重试中…' : '重试'}
+            </button>
+            {turnError.message.includes('未配置叙事引擎') && (
+              <button
+                onClick={() => useGame.setState({ screen: 'settings' })}
+                className="rounded-lg border border-[color:var(--theme-color)] px-4 py-1.5 text-sm"
+              >
+                去设置
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       {/* 当前回合信息 + 历史入口 */}
       {current && (
         <div className="flex items-center justify-between px-1">

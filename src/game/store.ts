@@ -8,7 +8,7 @@ import { resolveTurn, openingTurn, buildWorldSnapshot, nextId, type LogEntry } f
 import { fmtTimeShort } from './engine/time'
 import { saveAuto, loadSnapshot } from './save'
 import { saveSession, loadSession, clearSession, trimLog, type Session } from './session'
-import { narrateOpening, sanitizeOptions, buildSystemPrompt } from './narrator/llm'
+import { narrateOpening, sanitizeOptions, buildSystemPrompt, isOfflineError, hasLatexMarkup, sanitizeNarrative } from './narrator/llm'
 import { WORLD_BIBLE } from './data/worldview'
 import { OPENING_SCRIPTS } from './data/events'
 import { ORIGINS, SPIRIT_ROOTS, PHYSIQUES, DAO_PATHS } from './data/creation'
@@ -27,6 +27,8 @@ interface GameStore {
   restoredTurn: number | null
   /** 失败回退提示（突破/战斗失败时出现）：kind + 快照回合 */
   snapshotOffer: { kind: '突破' | '战斗'; turn: number } | null
+  /** 回合执行失败（AI 报错/离线/未配置）→ 停留当前卡片，等待手动重试 */
+  turnError: { message: string; offline: boolean; action: string } | null
 
   toScreen: (s: Screen) => void
   setSettings: (patch: Partial<NarratorSettings>) => void
@@ -81,6 +83,16 @@ function persistCurrentSession(state: GameState, log: LogEntry[], pendingOptions
   })
 }
 
+/** 归一化历史条目：空白叙事 → 占位、LaTeX 污染 → 清洗（防止旧档/异常数据污染 LLM 历史） */
+function normalizeLog(log: LogEntry[]): LogEntry[] {
+  return log.map((e) => {
+    let narr = e.narrative ?? ''
+    if (hasLatexMarkup(narr)) narr = sanitizeNarrative(narr)
+    if (!narr.trim()) narr = `（${e.time ?? ''}，天道静默）`
+    return { ...e, narrative: narr }
+  })
+}
+
 export const useGame = create<GameStore>()(
   persist(
     (set, get) => ({
@@ -93,6 +105,7 @@ export const useGame = create<GameStore>()(
       error: null,
       restoredTurn: null,
       snapshotOffer: null,
+      turnError: null,
 
       toScreen: (s) => set({ screen: s }),
 
@@ -110,6 +123,7 @@ export const useGame = create<GameStore>()(
           error: null,
           restoredTurn: null,
           snapshotOffer: null,
+          turnError: null,
         })
         persistCurrentSession(s, log, entry.options)
         // 开局第一回合触发天道：LLM 可用时用 AI 演绎开局并原位替换第一张卡片
@@ -148,11 +162,12 @@ export const useGame = create<GameStore>()(
         set({
           screen: 'play',
           game: file.state,
-          log: fLog ?? [],
+          log: normalizeLog(fLog ?? []),
           pendingOptions: fOpts ?? [],
           error: null,
           restoredTurn: null,
           snapshotOffer: null,
+          turnError: null,
         })
         persistCurrentSession(file.state, fLog ?? [], fOpts ?? [])
       },
@@ -163,10 +178,11 @@ export const useGame = create<GameStore>()(
         set({
           screen: 'play',
           game: s.state,
-          log: s.log,
+          log: normalizeLog(s.log),
           pendingOptions: s.pendingOptions,
           error: null,
           restoredTurn: s.turn,
+          turnError: null,
         })
         return true
       },
@@ -187,7 +203,7 @@ export const useGame = create<GameStore>()(
         set({
           screen: 'play',
           game: s.state,
-          log: s.log,
+          log: normalizeLog(s.log),
           pendingOptions: s.pendingOptions,
           error: null,
           restoredTurn: s.turn,
@@ -206,11 +222,12 @@ export const useGame = create<GameStore>()(
         set({
           screen: 'play',
           game: clean,
-          log: fLog ?? [],
+          log: normalizeLog(fLog ?? []),
           pendingOptions: fOpts ?? [],
           error: null,
           restoredTurn: snap.meta.turn,
           snapshotOffer: null,
+          turnError: null,
         })
         persistCurrentSession(clean, fLog ?? [], fOpts ?? [])
         return true
@@ -231,12 +248,13 @@ export const useGame = create<GameStore>()(
       submitAction: async (input) => {
         const { game, settings, log, busy } = get()
         if (!game || busy) return
-        set({ busy: true, error: null })
+        set({ busy: true, error: null, turnError: null })
         try {
           // 重建对话历史：玩家输入 + AI 回答成对回传，AI 才能记得自己说过什么
           const history = log.slice(-8).flatMap((e) => [
             { role: 'user' as const, content: e.action ?? `（回合 ${e.time}）` },
-            { role: 'assistant' as const, content: e.narrative },
+            // 空白叙事兜底：绝不让空内容进入 LLM 历史
+            { role: 'assistant' as const, content: (e.narrative ?? '').trim() ? e.narrative : `（回合 ${e.time}，天道静默）` },
           ])
           history.push({ role: 'user' as const, content: input })
           const out = await resolveTurn({ state: game, action: input, history, log }, settings)
@@ -253,6 +271,7 @@ export const useGame = create<GameStore>()(
             pendingOptions: out.options,
             busy: false,
             snapshotOffer: offer,
+            turnError: null,
           })
           // 每回合持久化现场（刷新可无缝恢复）；死亡回合不覆盖，保留死前现场供回档
           if (!s2.flags.dead) persistCurrentSession(s2, newLog, out.options)
@@ -262,7 +281,16 @@ export const useGame = create<GameStore>()(
             saveAuto(s2, `${p.daoName} · ${p.realm}·${p.stage} · 回合${s2.turn}`, { log: newLog, pendingOptions: out.options, scene: out.scene })
           }
         } catch (e) {
-          set({ busy: false, error: e instanceof Error ? e.message : String(e) })
+          // 失败即停留：不推进、不生成替代内容，等待手动重试
+          const offline = isOfflineError(e)
+          set({
+            busy: false,
+            turnError: {
+              message: e instanceof Error ? e.message : String(e),
+              offline,
+              action: input,
+            },
+          })
         }
       },
 
@@ -274,6 +302,7 @@ export const useGame = create<GameStore>()(
           pendingOptions: [],
           error: null,
           restoredTurn: null,
+          turnError: null,
         }),
 
       clearError: () => set({ error: null }),

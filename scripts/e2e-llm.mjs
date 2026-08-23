@@ -25,10 +25,25 @@ async function createChar(p) {
   await p.waitForTimeout(700)
 }
 
-async function doAction(p, text, waitMs = 12000) {
-  await p.fill('input[placeholder*="输入你的行动"]', text)
-  await p.keyboard.press('Enter')
-  await p.waitForTimeout(waitMs)
+async function doAction(p, text, waitMs = 20000) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const prev = (await p.locator('main article').textContent().catch(() => '')) ?? ''
+    await p.fill('input[placeholder*="输入你的行动"]', text)
+    await p.keyboard.press('Enter')
+    let advanced = false
+    for (let i = 0; i < Math.ceil(waitMs / 1000); i++) {
+      await p.waitForTimeout(1000)
+      const cur = (await p.locator('main article').textContent().catch(() => '')) ?? ''
+      if (cur !== prev && cur.includes('「') && cur.trim().length > 20) { advanced = true; break }
+      const retry = await p.locator('button:has-text("重试")').count()
+      if (retry > 0) {
+        await p.locator('button:has-text("重试")').first().click()
+        await p.waitForTimeout(1000)
+      }
+    }
+    if (advanced) return true
+  }
+  return false
 }
 
 let pass = 0, fail = 0
@@ -97,7 +112,7 @@ const check = (n, c, d = '') => { if (c) { pass++; console.log(`  ✅ ${n}`) } e
   await ctx.close()
 }
 
-// ── 场景 B：未配置 Key → 离线，不应调 API ──
+// ── 场景 B：未配置 Key → 回合被拦截，不调 API，提示配置 ──
 {
   console.log('== 场景 B：未配置 Key ==')
   const ctx = await b.newContext({ viewport: { width: 1280, height: 900 } })
@@ -105,10 +120,13 @@ const check = (n, c, d = '') => { if (c) { pass++; console.log(`  ✅ ${n}`) } e
   const apiCalls = []
   p.on('request', (r) => { if (r.url().includes('api.deepseek.com')) apiCalls.push(r.url()) })
   await createChar(p)
-  await doAction(p, '我随便做点什么', 2500)
+  await p.fill('input[placeholder*="输入你的行动"]', '我随便做点什么')
+  await p.keyboard.press('Enter')
+  await p.waitForTimeout(2000)
   const body = await p.textContent('body')
   check('无 Key 时未调 API', apiCalls.length === 0)
-  check('无 Key 时显示【离线】标签', body.includes('离线'))
+  check('无 Key 显示未配置提示', body.includes('未配置叙事引擎'))
+  check('无 Key 回合未推进（仍单卡片）', (await p.locator('main article').count()) === 1)
   await ctx.close()
 }
 
