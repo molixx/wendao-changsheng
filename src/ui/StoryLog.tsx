@@ -38,9 +38,9 @@ export function StoryLog() {
           {entry.deltas && entry.deltas.length > 0 && (
             <p className="cmdline mt-1">【数值变化】{entry.deltas.join(' · ')}</p>
           )}
-          {entry.options.length > 0 && (
+          {entry.options && entry.options.length > 0 && (
             <div className="mt-3 flex flex-col gap-2">
-              {entry.options.map((opt, i) => (
+              {(entry.options ?? []).map((opt, i) => (
                 <button
                   key={i}
                   disabled={busy}

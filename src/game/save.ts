@@ -4,6 +4,7 @@
 import type { GameState, SaveFile } from './state'
 import type { LogEntry } from './engine/turn'
 import type { SceneThemeKey } from '../ui/theme'
+import { isValidGameState } from './session'
 
 export const SAVE_SCHEMA = 'wendao-changsheng'
 export const SAVE_VERSION = 2
@@ -60,6 +61,7 @@ function read(key: string): SaveFile | null {
     if (!raw) return null
     const file = JSON.parse(raw) as SaveFile
     if (file?.meta?.schema !== SAVE_SCHEMA) return null
+    if (!isValidGameState(file.state)) return null
     return file
   } catch {
     return null

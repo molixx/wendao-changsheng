@@ -15,7 +15,7 @@ export function BalanceBadge() {
   const [open, setOpen] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<number | null>(null)
 
-  const canQuery = settings.useLlm && settings.apiKey.trim().length > 0 && /deepseek\.com$/i.test(settings.baseUrl.replace(/\/+$/, ''))
+  const canQuery = settings.useLlm && (settings.apiKey ?? '').trim().length > 0 && /deepseek\.com$/i.test((settings.baseUrl ?? '').replace(/\/+$/, ''))
 
   const refresh = async (force = false) => {
     if (!canQuery) return

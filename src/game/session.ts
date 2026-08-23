@@ -26,12 +26,29 @@ export function saveSession(s: Session): void {
   }
 }
 
+/** 校验 GameState 关键字段（防御旧版/损坏的本地数据） */
+export function isValidGameState(s: unknown): boolean {
+  if (!s || typeof s !== 'object') return false
+  const g = s as Record<string, unknown>
+  if (typeof g.turn !== 'number') return false
+  const p = g.player as Record<string, unknown> | undefined
+  const r = g.res as Record<string, unknown> | undefined
+  const t = g.timeline as Record<string, unknown> | undefined
+  if (!p || typeof p !== 'object' || typeof p.daoName !== 'string') return false
+  if (!r || typeof r !== 'object' || typeof r.hp !== 'number') return false
+  if (!t || typeof t !== 'object' || typeof t.year !== 'number') return false
+  if (!Array.isArray(g.log)) return false
+  if (!g.flags || typeof g.flags !== 'object') return false
+  return true
+}
+
 export function loadSession(): Session | null {
   try {
     const raw = localStorage.getItem(SESSION_KEY)
     if (!raw) return null
     const s = JSON.parse(raw) as Session
-    if (!s?.state?.player) return null
+    if (!s?.state || !isValidGameState(s.state)) return null
+    if (!Array.isArray(s.log)) return null
     return s
   } catch {
     return null

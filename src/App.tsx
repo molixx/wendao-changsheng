@@ -14,15 +14,16 @@ import { LoreBrowser } from './ui/LoreBrowser'
 import { DeathOverlay } from './ui/DeathOverlay'
 import { Background } from './ui/Background'
 import { BalanceBadge } from './ui/BalanceBadge'
+import { ErrorBoundary } from './ui/ErrorBoundary'
 import { SPIRIT_ROOTS } from './game/data/creation'
 import { SESSION_KEY, saveSession, trimLog } from './game/session'
 
 export default function App() {
   return (
-    <>
+    <ErrorBoundary>
       <Background />
       <Shell />
-    </>
+    </ErrorBoundary>
   )
 }
 

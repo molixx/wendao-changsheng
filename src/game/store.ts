@@ -247,6 +247,15 @@ export const useGame = create<GameStore>()(
     {
       name: 'wendao-changsheng',
       partialize: (st) => ({ settings: st.settings }),
+      // 旧版/残缺数据兜底：缺失字段补默认值，防止白屏
+      merge: (persisted, current) => {
+        const p = persisted as Partial<GameStore> | undefined
+        return {
+          ...current,
+          ...(p ?? {}),
+          settings: { ...DEFAULT_SETTINGS, ...(p?.settings ?? {}) },
+        }
+      },
     },
   ),
 )
