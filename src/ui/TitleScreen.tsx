@@ -7,6 +7,7 @@ import type { SaveFile } from '../game/state'
 import { hasSession } from '../game/session'
 import { Panel } from './Panel'
 import { ConfirmDialog } from './ConfirmDialog'
+import { BalanceBadge } from './BalanceBadge'
 
 export function TitleScreen() {
   const { toScreen, continueFromSave, restoreSession, abandonSession } = useGame()
@@ -24,7 +25,10 @@ export function TitleScreen() {
   }
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-lg flex-col items-center justify-center gap-6 px-4 py-10">
+    <div className="relative mx-auto flex min-h-screen w-full max-w-lg flex-col items-center justify-center gap-6 px-4 py-10">
+      <div className="absolute right-4 top-4">
+        <BalanceBadge />
+      </div>
       <Panel theme="qingyu" title="问道长生 · 修仙模拟器" subtitle="作者：wobuaixc@163.com" className="w-full text-center">
         <p className="leading-relaxed text-ink">
           高自由修仙 · 全性向 · 真实修仙界

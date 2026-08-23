@@ -1,9 +1,10 @@
 /** 叙事引擎设置页 —— 可配置 OpenAI 兼容端点（默认 DeepSeek），key 存 localStorage
- *  含「测试连接」：校验端点 / Key / 模型是否调得通 */
+ *  含「测试连接」：校验端点 / Key / 模型是否调得通；「查询余额」：DeepSeek 余额 */
 
 import { useState } from 'react'
 import { useGame } from '../game/store'
 import { testConnection, type ConnTestResult } from '../game/narrator/llm'
+import { queryBalance, clearBalanceCache, isLowBalance, type BalanceResult } from '../game/narrator/balance'
 import { Panel } from './Panel'
 
 export function SettingsPanel() {
@@ -11,6 +12,8 @@ export function SettingsPanel() {
   const [form, setForm] = useState(settings)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<ConnTestResult | null>(null)
+  const [balLoading, setBalLoading] = useState(false)
+  const [balResult, setBalResult] = useState<BalanceResult | null>(null)
 
   const save = () => {
     setSettings(form)
@@ -23,6 +26,15 @@ export function SettingsPanel() {
     const r = await testConnection(form.baseUrl, form.apiKey, form.model)
     setTestResult(r)
     setTesting(false)
+  }
+
+  const runBalance = async () => {
+    setBalLoading(true)
+    setBalResult(null)
+    clearBalanceCache()
+    const r = await queryBalance(form.baseUrl, form.apiKey)
+    setBalResult(r)
+    setBalLoading(false)
   }
 
   return (
@@ -80,6 +92,30 @@ export function SettingsPanel() {
             )}
             {testResult && !testResult.ok && (
               <span className="danger-line text-sm">❌ {testResult.error}</span>
+            )}
+          </div>
+
+          {/* 查询余额 */}
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={runBalance}
+              disabled={balLoading || !form.apiKey.trim()}
+              className="rounded-xl border border-[color:var(--theme-color)] px-4 py-2 font-bold text-[color:var(--theme-color)] disabled:opacity-40"
+            >
+              {balLoading ? '查询中…' : '查询余额'}
+            </button>
+            {balResult?.ok && balResult.infos?.[0] && (
+              <span
+                className={`text-sm font-bold ${isLowBalance(balResult) ? 'danger-line' : ''}`}
+                style={!isLowBalance(balResult) ? { color: 'var(--val-merit)' } : undefined}
+              >
+                ✅ {balResult.infos[0].currency} 余额 ¥{Number(balResult.infos[0].totalBalance).toFixed(2)}
+                {isLowBalance(balResult) ? '（⚠ 低于 ¥10）' : ''}
+                {' · '}赠送 {Number(balResult.infos[0].grantedBalance).toFixed(2)} · 充值 {Number(balResult.infos[0].toppedUpBalance).toFixed(2)}
+              </span>
+            )}
+            {balResult && !balResult.ok && (
+              <span className="danger-line text-sm">❌ {balResult.error}</span>
             )}
           </div>
 

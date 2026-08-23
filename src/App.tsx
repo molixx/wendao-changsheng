@@ -13,6 +13,7 @@ import { CreationWizard } from './ui/CreationWizard'
 import { LoreBrowser } from './ui/LoreBrowser'
 import { DeathOverlay } from './ui/DeathOverlay'
 import { Background } from './ui/Background'
+import { BalanceBadge } from './ui/BalanceBadge'
 import { SPIRIT_ROOTS } from './game/data/creation'
 import { SESSION_KEY, saveSession, trimLog } from './game/session'
 
@@ -122,7 +123,8 @@ function Shell() {
           ☰ 状态卡
         </button>
         <span className="cmdline sm:hidden">问道长生 · 回合 {game?.turn ?? 0}</span>
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex items-center gap-2">
+          <BalanceBadge />
           <button onClick={() => setShowSave(true)} className="rounded-lg border border-[color:var(--theme-color)]/40 px-3 py-1 text-sm">
             存档
           </button>
