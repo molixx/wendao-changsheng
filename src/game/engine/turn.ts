@@ -67,6 +67,15 @@ export function buildWorldSnapshot(state: GameState): string {
   ].join('\n')
 }
 
+/** 剧情锚点：取最近一回合叙事结尾（截 400 字）注入 system，让 AI 严格接续——保持地点/人物/剧情线一致，
+ *  防止「上一回合在坊市、下一回合又写你在洞府」之类的剧情跳跃 */
+export function buildStoryAnchor(log?: LogEntry[]): string {
+  const last = log?.[log.length - 1]
+  const narr = (last?.narrative ?? '').trim().slice(-400)
+  if (!narr) return ''
+  return `\n\n【上一回合剧情结尾——必须严格接续：保持所在场所、在场人物与进行中的事件完全一致；不得无端更换场景、穿越地点或另起一条剧情线】\n${narr}`
+}
+
 /** deltas 字段别名（模型常输出拼音/中文键）与标签 */
 const DELTA_ALIASES: Record<string, string> = {
   hp: 'hp', 气血: 'hp', qi: 'hp', qixue: 'hp',
@@ -386,7 +395,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       nextState = sys.state
       const codeNarrative = sys.narrative
       if (!useLlm) throw new Error('未配置叙事引擎：请到「叙事引擎设置」配置 API Key 后继续')
-      const system = buildSystemPrompt(WORLD_BIBLE, buildWorldSnapshot(input.state))
+      const system = buildSystemPrompt(WORLD_BIBLE, buildWorldSnapshot(input.state) + buildStoryAnchor(input.log))
       let aiMonths = 0
       try {
         const narrated = await narrateSystem(settings, system, input.history, input.action, codeNarrative)
@@ -418,7 +427,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
 
   if (isFree) {
     if (!useLlm) throw new Error('未配置叙事引擎：请到「叙事引擎设置」配置 API Key 后继续')
-    const system = buildSystemPrompt(WORLD_BIBLE, buildWorldSnapshot(input.state))
+    const system = buildSystemPrompt(WORLD_BIBLE, buildWorldSnapshot(input.state) + buildStoryAnchor(input.log))
     // 「回到主剧情」等指令：提示 AI 自然接续主线
     const llmAction = isStoryResume ? `${input.action}（你已处理完手头事务，请自然接续当前主线剧情，不要新开一条剧情线）` : input.action
     try {
