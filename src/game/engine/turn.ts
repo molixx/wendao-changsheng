@@ -505,10 +505,12 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
 
   // 叙事兜底：任何路径都不允许空白叙事（否则会污染后续 LLM 历史）
   if (!narrative || !narrative.trim()) narrative = '天道静默不语，只是静静注视着你。'
-  // 摘要兜底：AI 未返回 summary 时——
-  // ① 系统指令：用代码结算叙事首句（「你闭关修炼3个月，修为进益45点」= 真实事件描述，不是玩家选项）；
-  // ② 自由行动：用「行动 + 历时」拼简述（AI 未展开时无从概括，退而求其次）
-  if (!summary || !summary.trim()) {
+  // 摘要兜底：AI 的 summary 若是「叙事句」（以 你/我/他/这/那 等人称/指示代词开头，即把 narrative 首句当 summary），
+  // 判定为不合格 → 降级为前端生成的简述：
+  // ① 系统指令：代码结算叙事首句（「你闭关修炼3个月修为进益45点」= 真实事件，非玩家选项）；
+  // ② 自由行动：行动 + 历时
+  const summaryLooksNarrative = !!summary && /^[你吾余我俺他她它这那只见但见却见]/.test(summary.trim())
+  if (!summary || !summary.trim() || summaryLooksNarrative) {
     if (codeNarrative && codeNarrative.trim()) {
       summary = codeNarrative.replace(/\s+/g, ' ').trim().slice(0, 60)
     } else {
