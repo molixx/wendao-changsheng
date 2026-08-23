@@ -293,8 +293,11 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
         narrative = narrated.narrative || codeNarrative
         options = sanitizeOptions(narrated.options)
         if (options.length === 0) options = sys.options
-        // 系统指令的时间也由 AI 决定（AI 未给时退回代码结算值）
-        if (typeof narrated.timePassedMonths === 'number') {
+        // 系统指令的时间：显式闭关时长（闭关 N 月/年）以输入为准（数值与时间一致）；
+        // 其余由 AI 决定（AI 未给时退回代码结算值）
+        if (cmd.kind === 'cultivate') {
+          timePassedMonths = sys.timePassedMonths
+        } else if (typeof narrated.timePassedMonths === 'number') {
           timePassedMonths = Math.max(0, Math.min(12, Math.round(narrated.timePassedMonths)))
         } else {
           timePassedMonths = sys.timePassedMonths
@@ -324,7 +327,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       narrative = result.narrative
       options = sanitizeOptions(result.options)
       scene = result.scene as SceneThemeKey | undefined
-      timePassedMonths = Math.max(0, Math.min(12, Math.round(result.timePassedMonths ?? 1)))
+      timePassedMonths = Math.max(0, Math.min(12, Math.round(result.timePassedMonths ?? 0)))
       const applied = applyDeltas(nextState, result.deltas)
       nextState = applied.state
       deltas = applied.applied
