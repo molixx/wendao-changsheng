@@ -28,7 +28,8 @@ function EntryCard({
   onFreeAction?: () => void
 }) {
   const narr = hasLatexMarkup(entry.narrative) ? sanitizeNarrative(entry.narrative) : entry.narrative
-  const summary = entry.summary ?? (entry.narrative ? entry.narrative.replace(/\s+/g, ' ').slice(0, 60) : '')
+  // 摘要：AI 返回的简述优先；没有则用「行动」（不截断叙事首句）
+  const summary = entry.summary ?? (entry.action ? `「${entry.action.slice(0, 20)}」` : '')
   return (
     <article className="panel shrink-0 px-4 py-3">
       <p className="cmdline flex items-center gap-2">
@@ -98,7 +99,7 @@ function EntryCard({
 /** 历史摘要行：紧凑显示（时间 + 事件摘要 + 流逝），点击展开该回合全文（只读） */
 function SummaryRow({ entry }: { entry: LogEntry }) {
   const [open, setOpen] = useState(false)
-  const summary = entry.summary ?? entry.narrative.replace(/\s+/g, ' ').slice(0, 60)
+  const summary = entry.summary ?? (entry.action ? `「${entry.action.slice(0, 20)}」` : '')
   return (
     <div className="border-b border-[color:var(--ink-muted)]/15 last:border-0">
       <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-white/60">
