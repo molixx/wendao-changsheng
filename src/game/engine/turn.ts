@@ -293,10 +293,21 @@ export function inferTimeFromNarrative(narrative: string): number {
   pushPhrase(/半月/g, 0.5)
   pushPhrase(/月余|月许|一月有余/g, 1.2)
   pushPhrase(/数月|几月|几个月/g, 2.5)
+  // 裸「N月」有歧义：「五月端午」「三月桃花」是时节，「闭关三月」「三月后」才是流逝。
+  // 策略：带「个」的「N个月」一定流逝；裸「N月」仅当前有行为/流逝语境词才算（否则视为时节不计）
+  const DURATION_BEFORE = /(闭关|苦修|修炼|打坐|参悟|悟道|疗伤|养伤|赶路|游历|历练|云游|静养|守候|等待|滞留|炼丹|炼器|外出|跋涉|耗费|耗时|整整|足足|一晃|转眼)/
+  const DURATION_AFTER = /(后|之后|过去|光景|之久|流逝|倏忽|弹指|眨眼)/
   for (const m of t.matchAll(/([一二三四五六七八九十两\d]+)\s*(?:个)?月/g)) {
     if (isFlashback(m.index! + m[0].length)) continue
     const n = cnToNum(m[1])
-    if (n && n >= 1 && n <= 12) candidates.push(n)
+    if (!n || n < 1 || n > 12) continue
+    const bare = !m[0].includes('个') // 裸 N月：无「个」字
+    if (bare) {
+      const before = t.slice(Math.max(0, m.index! - 2), m.index!)
+      const after = t.slice(m.index! + m[0].length, m.index! + m[0].length + 2)
+      if (!DURATION_BEFORE.test(before) && !DURATION_AFTER.test(after)) continue // 时节（三月桃花）不计
+    }
+    candidates.push(n)
   }
   // 日/天/旬：旬≈1/3、N日/N天≈N/30（封顶1）、数日/几日/几天≈0.3
   pushPhrase(/旬|十来天/g, 1 / 3)
