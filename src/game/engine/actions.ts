@@ -20,7 +20,7 @@ import { SPIRIT_ROOTS, DAO_PATHS } from '../data/creation'
 
 export type Command =
   | { kind: 'free' }
-  | { kind: 'cultivate'; closedDoor: boolean }
+  | { kind: 'cultivate'; closedDoor: boolean; months: number }
   | { kind: 'status' }
   | { kind: 'breakthrough'; path: '人道' | '地道' | '天道' | null }
   | { kind: 'enlighten'; branch: string | null }
@@ -47,7 +47,14 @@ export type Command =
 export function routeCommand(input: string): Command {
   const a = input.trim()
   if (!a) return { kind: 'free' }
-  if (/修炼|闭关|打坐|运功/.test(a)) return { kind: 'cultivate', closedDoor: /闭关/.test(a) }
+  if (/修炼|闭关|打坐|运功/.test(a)) {
+    let months = 1
+    const mN = a.match(/闭关\s*(\d+)\s*(个月|月)?/)
+    const mY = a.match(/闭关\s*(\d+)\s*年/)
+    if (mY) months = Math.min(120, Number(mY[1]) * 12)
+    else if (mN) months = Math.min(120, Number(mN[1]))
+    return { kind: 'cultivate', closedDoor: /闭关/.test(a), months }
+  }
   if (/面板|状态|属性|人物/.test(a)) return { kind: 'status' }
   if (/突破|渡劫/.test(a)) {
     const path = /天道/.test(a) ? '天道' : /地道/.test(a) ? '地道' : /人道/.test(a) ? '人道' : null
@@ -175,13 +182,13 @@ export function executeSystem(cmd: Command, state: GameState, storyLog?: LogEntr
     }
 
     case 'cultivate': {
-      const r = cultivate(state, 1, cmd.closedDoor)
+      const r = cultivate(state, cmd.months, cmd.closedDoor)
       const okOpts: { text: string; tag?: string }[] = [
         { text: cmd.closedDoor ? '继续闭关' : '继续修炼', tag: '平和' },
         { text: '突破', tag: '机缘' },
         { text: '洞府', tag: '平和' },
       ]
-      return { state: r.state, narrative: r.msg, options: CMD_OPTIONS(okOpts), scene: 'qingyu', timePassedMonths: 1 }
+      return { state: r.state, narrative: r.msg, options: CMD_OPTIONS(okOpts), scene: 'qingyu', timePassedMonths: cmd.months }
     }
 
     case 'breakthrough': {

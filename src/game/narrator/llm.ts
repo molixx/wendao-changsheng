@@ -75,6 +75,7 @@ ${worldSnapshot}
   "scene": "qingyu|xuanzi|zhusha|taofen|ziqi|liujin|tianqing|zhuqing",
   "deltas": {}
 }
+timePassedMonths（可选）：本回合流逝月数 0~12——瞬时事件 0、日常 1、赶路/闭关可数月；系统指令（修炼/游历/突破等）的时间由系统结算，仅自由行动时由你决定。
 deltas 规则（可选，影响玩家状态卡）：前端会校验并钳制到合法范围：
 - 数值：hp(气血)/mp(灵力)/cult(修为)/spirit(灵石)/merit(功德)/karma(业力)/lifespan(寿元)，带符号增量或绝对值
 - stats（六维）：{"stats": {"悟性": 1, "道心": -1}}，范围 1~20

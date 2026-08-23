@@ -319,7 +319,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       narrative = result.narrative
       options = sanitizeOptions(result.options)
       scene = result.scene as SceneThemeKey | undefined
-      timePassedMonths = Math.max(1, Math.min(12, result.timePassedMonths ?? 1))
+      timePassedMonths = Math.max(0, Math.min(12, Math.round(result.timePassedMonths ?? 1)))
       const applied = applyDeltas(nextState, result.deltas)
       nextState = applied.state
       deltas = applied.applied
