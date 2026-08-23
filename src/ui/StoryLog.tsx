@@ -136,18 +136,18 @@ export function StoryLog() {
       {historyOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4" onClick={() => setHistoryOpen(false)}>
           <div className="w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
-            <section className="panel" style={{ maxHeight: '80vh' }}>
-              <header className="panel-title flex items-center justify-between">
+            <section className="panel flex flex-col" style={{ maxHeight: '85vh' }}>
+              <header className="panel-title flex shrink-0 items-center justify-between">
                 <span>历史回合 · 共 {log.length} 回合</span>
                 <span className="text-sm font-normal opacity-90">仅可查看，不可重复触发</span>
               </header>
-              <div className="max-h-[62vh] overflow-y-auto p-4 flex flex-col gap-3">
+              <div className="min-h-0 flex-1 overflow-y-auto p-4 flex flex-col gap-3">
                 {log.map((e) => (
                   <EntryCard key={e.id} entry={e} interactive={false} />
                 ))}
                 {log.length === 0 && <p className="cmdline text-center py-6">尚无历史回合。</p>}
               </div>
-              <footer className="px-4 pb-3">
+              <footer className="shrink-0 px-4 pb-3">
                 <GoldLine />
                 <div className="flex items-center justify-between">
                   <p className="cmdline">当前回合 #{log.length}</p>
