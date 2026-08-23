@@ -6,7 +6,7 @@ import type { NarratorSettings } from '../state'
 export interface NarratorTurn {
   /** 剧情推进 1~3 句 */
   narrative: string
-  /** 选项（3~4 个） */
+  /** 选项（3~5 个，AI 按情境生成） */
   options: { text: string; tag?: string }[]
   /** 本回合推进月数（默认 1；闭关等可大于 1） */
   timePassedMonths?: number
@@ -14,6 +14,21 @@ export interface NarratorTurn {
   scene?: string
   /** 可选数值变化建议（仅参考，前端按世界规则校验后决定是否采纳） */
   deltas?: Record<string, number>
+}
+
+/** 选项基本卫生：去空 / 去重 / 限 3~5 个（长度不限，AI 全生成） */
+export function sanitizeOptions(list: { text?: string; tag?: string }[] | undefined): { text: string; tag?: string }[] {
+  if (!list) return []
+  const seen = new Set<string>()
+  const out: { text: string; tag?: string }[] = []
+  for (const o of list) {
+    const text = (o?.text ?? '').trim()
+    if (!text || seen.has(text)) continue
+    seen.add(text)
+    out.push({ text, tag: o.tag })
+    if (out.length >= 5) break
+  }
+  return out
 }
 
 export interface NarratorMessage {
@@ -32,7 +47,7 @@ ${worldSnapshot}
 你每回合必须且只能输出一个 JSON 对象（不要输出任何 JSON 之外的内容），格式：
 {
   "narrative": "剧情推进，1~3 句，符合修仙文风",
-  "options": [ {"text": "选项文字（最多18字）", "tag": "平和|机缘|风险|情缘|魔道"} × 3~4 ],
+  "options": [ {"text": "选项文字（长度不限，一句话行动）", "tag": "平和|机缘|风险|情缘|魔道"} × 3~5 ],
   "timePassedMonths": 1,
   "scene": "qingyu|xuanzi|zhusha|taofen|ziqi|liujin|tianqing|zhuqing",
   "deltas": {}
@@ -91,25 +106,32 @@ export async function testConnection(
   }
 }
 
-/** 系统指令的 AI 演绎：代码结算结果 → LLM 写成 1~3 句修仙文风叙事（纯文本，非 JSON） */
+/** 系统指令的 AI 演绎 + 选项生成：代码结算结果 → AI 写成叙事 + 3~5 个情境选项（JSON） */
 export async function narrateSystem(
   settings: NarratorSettings,
   system: string,
   history: NarratorMessage[],
   action: string,
   resultSummary: string,
-): Promise<string> {
+): Promise<NarratorTurn> {
   const base = settings.baseUrl.replace(/\/+$/, '')
   const isDeepSeek = /deepseek\.com$/i.test(base)
   const body: Record<string, unknown> = {
     model: settings.model,
     messages: [
-      { role: 'system', content: `${system}\n\n【本轮任务】玩家执行了行动「${action}」，系统已结算数值。请用 1~3 句修仙文风，把结算结果演绎成剧情叙述：不要罗列数字清单、不要重复结算原文，直接写出情境与人物动作。只输出叙述文本，不要任何 JSON 或标记。` },
+      {
+        role: 'system',
+        content: `${system}\n\n【本轮任务】玩家执行了行动「${action}」，系统已结算数值（结果见玩家消息）。请：
+1. 用 1~3 句修仙文风把结算结果演绎成剧情叙述：不要罗列数字清单、不要重复结算原文，直接写出情境与人物动作。
+2. 依据当前情境生成 3~5 个下一步选项（每个一句话行动，长度不限，可选语义标签：平和/机缘/风险/情缘/魔道）。
+只输出一个 JSON 对象：{"narrative": "...", "options": [{"text": "...", "tag": "平和"}]}，不要输出 JSON 之外的任何内容。`,
+      },
       ...history,
       { role: 'user', content: `结算结果：${resultSummary}` },
     ],
+    response_format: { type: 'json_object' },
     temperature: settings.temperature,
-    max_tokens: 300,
+    max_tokens: 800,
   }
   if (isDeepSeek) body.thinking = { type: 'disabled' }
   const res = await fetch(`${base}/chat/completions`, {
@@ -119,9 +141,14 @@ export async function narrateSystem(
   })
   if (!res.ok) throw new Error(`LLM 演绎失败（${res.status}）：${(await res.text()).slice(0, 200)}`)
   const data = (await res.json()) as { choices?: { message?: { content?: string } }[] }
-  const content = data.choices?.[0]?.message?.content?.trim()
+  const content = data.choices?.[0]?.message?.content
   if (!content) throw new Error('LLM 演绎返回为空')
-  return content
+  try {
+    const parsed = JSON.parse(content) as NarratorTurn
+    return { narrative: parsed.narrative ?? '', options: sanitizeOptions(parsed.options) }
+  } catch {
+    return { narrative: content.slice(0, 300), options: [] }
+  }
 }
 
 /** 调用 OpenAI 兼容端点 */

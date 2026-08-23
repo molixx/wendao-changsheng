@@ -18,7 +18,7 @@ const FALLBACK_OPTIONS = [
   { text: '修炼', tag: '平和' },
   { text: '外出游历', tag: '机缘' },
   { text: '坊市', tag: '平和' },
-  { text: '自由行动…', tag: '平和' },
+
 ]
 
 /** 自由行动的离线兜底：按关键词给出有限但合理的演绎 */

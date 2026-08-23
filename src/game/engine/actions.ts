@@ -108,7 +108,7 @@ export interface SystemResult {
 
 const CMD_OPTIONS = (extra: { text: string; tag?: string }[] = []): { text: string; tag?: string }[] => [
   ...extra,
-  { text: '自由行动…', tag: '平和' },
+  
 ]
 
 /** 在战斗中：任何行动先进战斗指令 */
@@ -399,7 +399,7 @@ export function executeSystem(cmd: Command, state: GameState, storyLog?: LogEntr
         narrative: `有缘之人：${NPCS.map((n) => n.name).join('、')}。可赠礼、论道、同游，增进情谊。`,
         options: [
           ...NPCS.slice(0, 3).map((n) => ({ text: `论道 · ${n.name}`, tag: '情缘' as const })),
-          { text: '自由行动…', tag: '平和' },
+          
         ],
         scene: 'taofen',
         timePassedMonths: 0,
@@ -519,7 +519,7 @@ export function resolveOpening(state: GameState): { state: GameState; narrative:
       { text: '修炼', tag: '平和' },
       { text: '外出游历', tag: '机缘' },
       { text: '坊市', tag: '平和' },
-      { text: '自由行动…', tag: '平和' },
+      
     ],
     scene: 'ziqi',
   }

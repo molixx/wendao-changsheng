@@ -4,7 +4,7 @@
 import type { GameState } from '../state'
 import type { NarratorSettings } from '../state'
 import type { SceneThemeKey } from '../../ui/theme'
-import { callNarrator, narrateSystem, buildSystemPrompt } from '../narrator/llm'
+import { callNarrator, narrateSystem, sanitizeOptions, buildSystemPrompt } from '../narrator/llm'
 import { resolveOffline } from './offline'
 import { routeCommand, executeSystem, resolveOpening } from './actions'
 import { advanceTime, fmtTimeShort } from './time'
@@ -82,21 +82,25 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
     if (sys) {
       nextState = sys.state
       const codeNarrative = sys.narrative
-      // 代码管数值、LLM 管叙事：系统指令在 LLM 可用时也用 AI 演绎（兑现「每回合调用」）
+      // 代码管数值、LLM 管叙事与选项：系统指令在 LLM 可用时也由 AI 演绎 + 生成情境选项
       if (useLlm) {
         try {
           const system = buildSystemPrompt(WORLD_BIBLE, buildWorldSnapshot(input.state))
-          narrative = await narrateSystem(settings, system, input.history, input.action, codeNarrative)
+          const narrated = await narrateSystem(settings, system, input.history, input.action, codeNarrative)
+          narrative = narrated.narrative || codeNarrative
+          options = sanitizeOptions(narrated.options)
+          if (options.length === 0) options = sys.options // AI 没给选项时回退模板保底
           engine = 'llm'
         } catch {
           narrative = codeNarrative
+          options = sys.options
           engine = 'code'
         }
       } else {
         narrative = codeNarrative
+        options = sys.options
         engine = 'code'
       }
-      options = sys.options
       scene = sys.scene
       timePassedMonths = sys.timePassedMonths
       deltas = []
@@ -111,7 +115,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
         const system = buildSystemPrompt(WORLD_BIBLE, buildWorldSnapshot(input.state))
         const result = await callNarrator(settings, system, input.history, input.action)
         narrative = result.narrative
-        options = result.options
+        options = sanitizeOptions(result.options)
         scene = result.scene as SceneThemeKey | undefined
         timePassedMonths = Math.max(1, Math.min(12, result.timePassedMonths ?? 1))
         deltas = result.deltas ? Object.entries(result.deltas).map(([k, v]) => `${k} ${v > 0 ? '+' : ''}${v}`) : []

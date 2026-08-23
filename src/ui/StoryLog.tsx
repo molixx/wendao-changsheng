@@ -1,10 +1,21 @@
-/** 剧情流 —— 回合记录 + 选项钮 + 错误提示 */
+/** 剧情流 —— 回合记录 + 选项钮（AI 生成）+ 固定「自由行动」入口（弹输入框）+ 错误提示 */
 
+import { useState } from 'react'
 import { useGame } from '../game/store'
-import { GoldLine, Tag } from './Panel'
+import { Panel, GoldLine, Tag } from './Panel'
 
 export function StoryLog() {
   const { log, busy, error, submitAction, clearError } = useGame()
+  const [freeOpen, setFreeOpen] = useState(false)
+  const [freeText, setFreeText] = useState('')
+
+  const sendFree = () => {
+    const v = freeText.trim()
+    if (!v || busy) return
+    setFreeOpen(false)
+    setFreeText('')
+    void submitAction(v)
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -43,6 +54,14 @@ export function StoryLog() {
               ))}
             </div>
           )}
+          {/* 固定「自由行动」入口（点击弹输入框） */}
+          <button
+            disabled={busy}
+            onClick={() => setFreeOpen(true)}
+            className="mt-2 w-full rounded-lg border border-dashed border-[color:var(--theme-color)]/50 px-3 py-1.5 text-sm text-[color:var(--ink-muted)] hover:bg-white/80 disabled:opacity-50"
+          >
+            ✎ 自由行动（输入任意行为）…
+          </button>
         </article>
       ))}
 
@@ -63,6 +82,36 @@ export function StoryLog() {
 
       {log.length === 0 && !busy && (
         <div className="panel px-4 py-6 text-center cmdline">天地初开，道途未启。</div>
+      )}
+
+      {/* 自由行动输入弹窗 */}
+      {freeOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4" onClick={() => setFreeOpen(false)}>
+          <div className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <Panel theme="qingyu" title="自由行动" subtitle="想做什么，便做什么" className="w-full">
+              <input
+                autoFocus
+                value={freeText}
+                onChange={(e) => setFreeText(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && sendFree()}
+                placeholder="如：夜探藏经阁 / 给师兄下情蛊 / 闭关百年…"
+                className="w-full rounded-lg border border-[color:var(--theme-color)]/40 px-3 py-2.5 text-sm outline-none"
+              />
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={sendFree}
+                  disabled={!freeText.trim() || busy}
+                  className="flex-1 rounded-lg bg-[color:var(--theme-color)] px-3 py-2 text-sm font-bold text-white disabled:opacity-40"
+                >
+                  行动
+                </button>
+                <button onClick={() => setFreeOpen(false)} className="rounded-lg border border-[color:var(--ink-muted)]/40 px-4 py-2 text-sm">
+                  取消
+                </button>
+              </div>
+            </Panel>
+          </div>
+        </div>
       )}
 
       <GoldLine />
