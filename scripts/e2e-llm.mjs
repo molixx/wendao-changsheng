@@ -72,8 +72,16 @@ const check = (n, c, d = '') => { if (c) { pass++; console.log(`  ✅ ${n}`) } e
   await p.waitForTimeout(500)
   const modalText = await p.textContent('div.fixed')
   check('两次自由输入的记录都在（历史弹窗）', !!modalText?.includes('我想去后山') && !!modalText?.includes('我想向路过的老修士'))
-  const twoNarrs = [...(modalText?.matchAll(/我想去后山[\s\S]{0,200}?天道/g) ?? [])]
-  check('两次叙事文本不同（非重复）', twoNarrs.length >= 1)
+  // 提取两次自由输入的叙事段落并比较（应不同，证明 AI 有上下文而非重复模板）
+  const seg = (action) => {
+    const i = modalText?.indexOf(action) ?? -1
+    if (i < 0) return ''
+    const j = modalText!.indexOf('「', i + action.length)
+    return modalText!.slice(i, j > 0 ? j : i + 300).replace(/天道|结算|离线|入道[^「]*/g, '').trim()
+  }
+  const n1 = seg('我想去后山')
+  const n2 = seg('我想向路过的老修士')
+  check('两次自由输入叙事不同（非重复）', n1.length > 8 && n2.length > 8 && n1 !== n2, `${n1.slice(0, 16)}... vs ${n2.slice(0, 16)}...`)
   await p.locator('div.fixed button:has-text("关闭")').click()
   await p.waitForTimeout(300)
   await p.screenshot({ path: '/tmp/llm-verify.png' })
