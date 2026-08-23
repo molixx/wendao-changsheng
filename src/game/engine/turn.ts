@@ -256,24 +256,34 @@ function cnToNum(s: string): number | null {
 
 /** 从 AI 叙事中推断流逝月数：AI 叙述提到「几日/数日/半月/旬/数月/月余/半年/一年」等时间表述时，
  *  自动折算成小额月数（小数月会跨回合累积，见 applyAging）。多表述并存时取最大（避免重复计数）。
- *  带「前/之前」等回溯锚点的时间表述（如「三年前」「半月前」指过去的背景，非本回合流逝）不计入。 */
+ *  绝对纪年（天玄历 N 年 / 入道 N 年 / 境界 N 年 / N 年一度）与回溯锚点（三年前/半月前）不计入。 */
 export function inferTimeFromNarrative(narrative: string): number {
   if (!narrative) return 0
+  // 先掩蔽绝对纪年/时间行（叙事开头必带，属当前时刻而非流逝）：
+  // 天玄历 387 年、入道三年 · 五月、筑基元年 · 冬、炼气五年等
+  const t = narrative
+    .replace(/天玄历\s*\d+\s*年/g, '天玄历N年')
+    .replace(/入道\s*[元一二三四五六七八九十两\d]+\s*年\s*[·,，]?\s*[一二三四五六七八九十两\d]+\s*月/g, '入道N年N月')
+    .replace(/入道\s*[元一二三四五六七八九十两\d]+\s*年/g, '入道N年')
+    .replace(/[\u4e00-\u9fa5]{1,4}元\s*年/g, 'X元年')
+    // 仅掩蔽「境界名 + N年」的状态表述（炼气五年 = 当前境界年限，非流逝）；
+    // 「闭关十年」「苦修五年」等行为性表述保留（是真实流逝）
+    .replace(/(炼气|练气|筑基|结晶|金丹|具灵|元婴|化神|悟道|羽化|登仙)\s*[一二三四五六七八九十\d]+\s*年/g, 'X境界年')
   const candidates: number[] = []
   /** 跳过回溯锚点：表述后紧跟「前」字（三年前/半月前/一月之前…） */
   const isFlashback = (endIdx: number) => {
-    const after = narrative.slice(endIdx, endIdx + 2)
+    const after = t.slice(endIdx, endIdx + 2)
     return after.includes('前')
   }
-  // 年/载：N年 → N×12（N=1~12）
-  for (const m of narrative.matchAll(/([一二三四五六七八九十两\d]+)\s*(?:年|载)/g)) {
+  // 年/载：N年 → N×12（N=1~12）；「N年一度」为频率表述（升仙大会五年一度）不计入
+  for (const m of t.matchAll(/([一二三四五六七八九十两\d]+)\s*(?:年|载)(?!一度|一次|一回)/g)) {
     if (isFlashback(m.index! + m[0].length)) continue
     const n = cnToNum(m[1])
     if (n && n >= 1) candidates.push(Math.min(12, n * 12))
   }
   // 月：半年=6、半月=0.5、月余≈1.2、数月≈2.5、N月/N个月=N（1~12）
   const pushPhrase = (re: RegExp, v: number) => {
-    for (const m of narrative.matchAll(re)) {
+    for (const m of t.matchAll(re)) {
       if (isFlashback(m.index! + m[0].length)) continue
       candidates.push(v)
       break // 同一短语只计一次
@@ -283,7 +293,7 @@ export function inferTimeFromNarrative(narrative: string): number {
   pushPhrase(/半月/g, 0.5)
   pushPhrase(/月余|月许|一月有余/g, 1.2)
   pushPhrase(/数月|几月|几个月/g, 2.5)
-  for (const m of narrative.matchAll(/([一二三四五六七八九十两\d]+)\s*(?:个)?月/g)) {
+  for (const m of t.matchAll(/([一二三四五六七八九十两\d]+)\s*(?:个)?月/g)) {
     if (isFlashback(m.index! + m[0].length)) continue
     const n = cnToNum(m[1])
     if (n && n >= 1 && n <= 12) candidates.push(n)
@@ -291,7 +301,7 @@ export function inferTimeFromNarrative(narrative: string): number {
   // 日/天/旬：旬≈1/3、N日/N天≈N/30（封顶1）、数日/几日/几天≈0.3
   pushPhrase(/旬|十来天/g, 1 / 3)
   pushPhrase(/数日|几日|几天|数天|些许时日/g, 0.3)
-  for (const m of narrative.matchAll(/([一二三四五六七八九十两\d]+)\s*(?:日|天)/g)) {
+  for (const m of t.matchAll(/([一二三四五六七八九十两\d]+)\s*(?:日|天)/g)) {
     if (isFlashback(m.index! + m[0].length)) continue
     const n = cnToNum(m[1])
     if (n && n >= 1) candidates.push(Math.min(1, n / 30))
@@ -307,12 +317,14 @@ export function reconcileLifespan(state: GameState): GameState {
   return { ...state, res: { ...state.res, lifespan: cap } }
 }
 
-/** 衰老结算：每回合按流逝月数统一计算年龄/寿元（跨回合用 flags.ageMonths 累加余数），寿元耗尽 → 坐化 */
+/** 衰老结算：每回合按流逝月数统一计算年龄/寿元（跨回合用 flags.ageMonths 累加余数），寿元耗尽 → 坐化
+ *  与时间线推进共用同一累积口径：整月进时间线，不足一月的余数留 flags.ageMonths，避免「年龄涨了年份不动」的脱节 */
 export function applyAging(state: GameState, months: number): GameState {
   if (months <= 0 || state.flags.dead) return state
-  const total = (typeof state.flags.ageMonths === 'number' ? state.flags.ageMonths : 0) + months
-  const years = Math.floor(total / 12)
-  const ageMonths = total % 12
+  const acc = (typeof state.flags.ageMonths === 'number' ? state.flags.ageMonths : 0) + months
+  const years = Math.floor(acc / 12)
+  // 只留不足一个整月的小数余数（整月部分已由调用方推入时间线）
+  const ageMonths = acc - Math.floor(acc)
   if (years <= 0) return { ...state, flags: { ...state.flags, ageMonths } }
   const age = state.player.age + years
   const lifespan = Math.max(0, state.res.lifespan - years)
@@ -411,9 +423,12 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
   // 叙事兜底：任何路径都不允许空白叙事（否则会污染后续 LLM 历史）
   if (!narrative || !narrative.trim()) narrative = '天道静默不语，只是静静注视着你。'
 
-  // 时间推进（代码权威；战斗回合不流逝时间）。小数月（如「数日」折算的 0.3）只进衰老累积器，
-  // 时间线只按整月推进，避免出现「二月半」
-  const newTimeline = advanceTime(input.state.timeline, Math.floor(timePassedMonths))
+  // 时间推进（代码权威；战斗回合不流逝时间）。小数月（如「数日」折算的 0.3）跨回合累积在
+  // flags.ageMonths：攒满的整月同步推进时间线 + 年龄/寿元，只留不足一月的余数，
+  // 保证「入道第几年」与「年龄」始终一致（不会出现年龄涨了年份不动的脱节）
+  const acc = (typeof nextState.flags.ageMonths === 'number' ? nextState.flags.ageMonths : 0) + timePassedMonths
+  const wholeMonths = Math.floor(acc)
+  const newTimeline = advanceTime(input.state.timeline, wholeMonths)
   // 每个回合固定提供「回到主剧情」入口（未在选项中时追加）
   if (!options.some((o) => o.text.includes('回到主剧情'))) {
     options = [...options, { text: '回到主剧情', tag: '平和' }]
