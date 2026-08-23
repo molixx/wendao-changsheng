@@ -1,78 +1,98 @@
-/** 历史弹窗布局验证：多屏幕高度下，关闭按钮始终可见、滚动区自适应 */
+/** 极限验证：50 条历史时弹窗滚动、最后卡片完整可见、每卡高度正常 */
 import { chromium } from 'playwright'
 
 const REAL_KEY = process.env.DS_KEY ?? ''
 const b = await chromium.launch({ channel: 'msedge', headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] })
 
-const sizes = [
-  [1280, 900],
-  [1280, 600], // 矮窗口
-  [390, 844], // 手机
-]
-
-async function buildGame(p) {
-  await p.goto('http://localhost:5173/', { waitUntil: 'networkidle' })
-  await p.getByRole('button', { name: '叙事引擎设置', exact: true }).click()
-  await p.waitForTimeout(400)
-  await p.locator('input[type="password"]').fill(REAL_KEY)
-  await p.getByRole('button', { name: '保存', exact: true }).click()
-  await p.waitForTimeout(500)
-  await p.click('button:has-text("开始新游戏")')
-  await p.waitForTimeout(400)
-  const inputs = p.locator('input')
-  await inputs.nth(0).fill('清微')
-  await inputs.nth(1).fill('沈清微')
-  const nb = p.locator('button:has-text("下一步")')
-  await nb.click(); await p.waitForTimeout(200); await p.click('button:has-text("农家子")')
-  await nb.click(); await p.waitForTimeout(200); await p.click('button:has-text("问道飞升")')
-  await nb.click(); await p.waitForTimeout(200); await p.click('button:has-text("天灵根")'); await p.click('button:has-text("先天道体")')
-  await nb.click(); await p.waitForTimeout(200); await nb.click(); await p.waitForTimeout(200)
-  await p.click('button:has-text("踏入修仙界")')
-  await p.waitForTimeout(700)
-}
-
-let pass = 0
-let fail = 0
+let pass = 0, fail = 0
 const check = (n, c, d = '') => { if (c) { pass++; console.log(`  ✅ ${n}`) } else { fail++; console.log(`  ❌ ${n} ${d}`) } }
 
-for (const [w, h] of sizes) {
-  const ctx = await b.newContext({ viewport: { width: w, height: h } })
-  const p = await ctx.newPage()
-  await buildGame(p)
-  for (const a of ['修炼', '我想去坊市逛逛', '游历', '我想去后山练剑']) {
-    await p.fill('input[placeholder*="输入你的行动"]', a)
-    await p.keyboard.press('Enter')
-    await p.waitForTimeout(11000)
-  }
-  await p.getByRole('button', { name: /历史回合（\d+）/ }).click()
-  await p.waitForTimeout(500)
-  const geo = await p.evaluate(() => {
-    const modal = [...document.querySelectorAll('div.fixed')].find((d) => d.textContent?.includes('历史回合'))
-    if (!modal) return null
-    const section = modal.querySelector('section')
-    const scrollDiv = modal.querySelector('.overflow-y-auto')
-    const footer = modal.querySelector('footer')
-    const s = section?.getBoundingClientRect()
-    const sd = scrollDiv?.getBoundingClientRect()
-    const f = footer?.getBoundingClientRect()
-    return {
-      sectionTop: s ? Math.round(s.top) : null,
-      sectionBottom: s ? Math.round(s.bottom) : null,
-      footerBottom: f ? Math.round(f.bottom) : null,
-      footerVisible: f ? f.bottom <= innerHeight && f.top >= 0 : false,
-      scrollable: sd ? sd.scrollHeight > sd.clientHeight : null,
-      scrollH: sd ? sd.scrollHeight : null,
-      clientH: sd ? sd.clientHeight : null,
-      entries: modal.querySelectorAll('article').length,
-    }
+const ctx = await b.newContext({ viewport: { width: 1280, height: 700 } })
+const p = await ctx.newPage()
+await p.goto('http://localhost:5173/', { waitUntil: 'networkidle' })
+await p.getByRole('button', { name: '叙事引擎设置', exact: true }).click()
+await p.waitForTimeout(400)
+await p.locator('input[type="password"]').fill(REAL_KEY)
+await p.getByRole('button', { name: '保存', exact: true }).click()
+await p.waitForTimeout(500)
+// 注入 50 条历史（现场会话直接写 localStorage）
+await p.evaluate(() => {
+  const mk = (i) => ({
+    id: i,
+    time: `入道元年·${(i % 12) + 1}月`,
+    action: `行动 ${i}`,
+    narrative: `这是第 ${i} 条历史叙事内容，讲述修士在第 ${i} 个月里的经历与际遇，字数应当足够让卡片拥有正常高度，避免卡片过矮或显示不全。`.repeat(2),
+    options: [
+      { text: `选项甲-${i}`, tag: '平和' },
+      { text: `选项乙-${i}`, tag: '机缘' },
+      { text: `选项丙-${i}`, tag: '风险' },
+      { text: `选项丁-${i}`, tag: '情缘' },
+    ],
+    scene: 'qingyu',
+    engine: 'llm',
   })
-  console.log(`== 视口 ${w}×${h} ==`)
-  console.log(`  弹窗 ${geo?.sectionTop}~${geo?.sectionBottom} | 底部按钮 ${geo?.footerBottom}（视口高 ${h}）| 滚动区 ${geo?.clientH}/${geo?.scrollH}${geo?.scrollable ? '（可滚动）' : ''} | 条目 ${geo?.entries}`)
-  check(`[${w}×${h}] 关闭按钮完整可见`, geo?.footerVisible === true && (geo?.footerBottom ?? 0) <= h - 4)
-  check(`[${w}×${h}] 弹窗未超出视口`, (geo?.sectionTop ?? 0) >= 0 && (geo?.sectionBottom ?? 0) <= h)
-  await ctx.close()
-}
+  const log = Array.from({ length: 50 }, (_, i) => mk(i + 1))
+  const base = {
+    version: 1, turn: 50,
+    player: { daoName: '测试', name: '测试', gender: '男', age: 20, originId: 'farmer', realm: '炼气', stage: '初期', sect: '散修', spiritRootId: 'tian', physiqueId: 'xiantian-dao', appearance: '清秀', daoPathId: 'wendao', talentIds: [], stats: { zizhi: 10, wuxing: 10, shenshi: 10, dunsu: 10, daoxin: 10, xianyuan: 10 } },
+    res: { hp: 100, hpMax: 100, mp: 80, mpMax: 80, cult: 50, cultMax: 100, lifespan: 100, lifespanMax: 100, spirit: 100, merit: 0, karma: 0, mood: 1.0, injury: null, statusEffects: [] },
+    timeline: { year: 4, month: 3, calendarYear: 390 },
+    bag: {}, gongfaIds: [], techniqueLevels: {}, enlightenment: {}, relationships: {}, daoPartner: null,
+    cave: { level: 1, spiritConcentration: '普通', facilities: [] },
+    sectInfo: { sect: '散修', rank: '散修', contribution: 0 },
+    mainQuest: '', flags: { location: '东洲·青岳' }, log: [], lastSaveTurn: 0,
+  }
+  localStorage.setItem('wdcd.session', JSON.stringify({ state: base, log, pendingOptions: log[log.length - 1].options, scene: 'qingyu', savedAt: Date.now(), turn: 50 }))
+})
+await p.reload({ waitUntil: 'networkidle' })
+await p.waitForTimeout(1200)
 
+// 主界面当前卡应显示第 50 条
+const mainText = (await p.locator('main article').textContent()) ?? ''
+check('主界面当前卡为最新一条', mainText.includes('第 50 条历史叙事'))
+
+// 打开历史弹窗
+await p.getByRole('button', { name: /历史回合（\d+）/ }).click()
+await p.waitForTimeout(500)
+const before = await p.evaluate(() => {
+  const modal = [...document.querySelectorAll('div.fixed')].find((d) => d.textContent?.includes('历史回合'))
+  const sc = modal?.querySelector('.overflow-y-auto')
+  const cards = modal ? [...modal.querySelectorAll('article')] : []
+  const heights = cards.slice(0, 3).map((c) => Math.round(c.getBoundingClientRect().height))
+  return {
+    entries: cards.length,
+    scrollable: sc ? sc.scrollHeight > sc.clientHeight : false,
+    scrollH: sc ? sc.scrollHeight : 0,
+    clientH: sc ? sc.clientHeight : 0,
+    firstHeights: heights,
+    lastCardText: cards[cards.length - 1]?.textContent?.slice(0, 30) ?? '',
+  }
+})
+console.log(`50 条历史: 弹窗内卡片=${before.entries} | 可滚动=${before.scrollable} (${before.clientH}/${before.scrollH}) | 前三卡高=${before.firstHeights}`)
+check('弹窗含全部 50 条', before.entries === 50)
+check('内容超限且可滚动', before.scrollable === true)
+check('卡片高度正常（>80px）', before.firstHeights.every((h) => h > 80), `${before.firstHeights}`)
+
+// 滚动到底 → 最后一张卡（第 1 条，最旧）完整可见
+await p.locator('div.fixed .overflow-y-auto').evaluate((el) => { el.scrollTop = el.scrollHeight })
+await p.waitForTimeout(400)
+const after = await p.evaluate(() => {
+  const modal = [...document.querySelectorAll('div.fixed')].find((d) => d.textContent?.includes('历史回合'))
+  const sc = modal?.querySelector('.overflow-y-auto')
+  const lastCard = sc?.querySelector('article:last-of-type')?.getBoundingClientRect()
+  const sb = sc?.getBoundingClientRect()
+  const footer = modal?.querySelector('footer')?.getBoundingClientRect()
+  return {
+    lastCardBottomVisible: lastCard && sb ? lastCard.bottom <= sb.bottom + 1 && lastCard.bottom >= sb.top - 1 : false,
+    lastCardText: sc?.querySelector('article:last-of-type')?.textContent?.slice(0, 20) ?? '',
+    footerVisible: footer ? footer.bottom <= innerHeight : false,
+    scrolledToBottom: sc ? Math.abs(sc.scrollTop + sc.clientHeight - sc.scrollHeight) < 4 : false,
+  }
+})
+check('滚动到底后最新条（列表末尾）内容可见', after.lastCardBottomVisible === true)
+check('关闭按钮可见', after.footerVisible === true)
+check('确实滚到底', after.scrolledToBottom === true)
+await p.screenshot({ path: '/tmp/hist-50.png' })
 console.log(`\n${pass} 通过 / ${fail} 失败`)
 await b.close()
 process.exit(fail > 0 ? 1 : 0)

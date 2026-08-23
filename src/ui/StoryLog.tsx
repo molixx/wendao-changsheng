@@ -27,7 +27,7 @@ function EntryCard({
   onFreeAction?: () => void
 }) {
   return (
-    <article className="panel px-4 py-3">
+    <article className="panel shrink-0 px-4 py-3">
       <p className="cmdline flex items-center gap-2">
         <span>{entry.time}</span>
         {entry.action && <span className="text-[color:var(--ink-muted)]/80">「{entry.action.slice(0, 24)}」</span>}
@@ -134,20 +134,20 @@ export function StoryLog() {
 
       {/* 历史回合模态弹窗（只读） */}
       {historyOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4" onClick={() => setHistoryOpen(false)}>
-          <div className="w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
-            <section className="panel flex flex-col" style={{ maxHeight: '85vh' }}>
-              <header className="panel-title flex shrink-0 items-center justify-between">
+        <div className="fixed inset-0 z-[60] flex overflow-y-auto bg-black/30 p-4" onClick={() => setHistoryOpen(false)}>
+          <div className="m-auto w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
+            <section className="panel">
+              <header className="panel-title flex items-center justify-between">
                 <span>历史回合 · 共 {log.length} 回合</span>
                 <span className="text-sm font-normal opacity-90">仅可查看，不可重复触发</span>
               </header>
-              <div className="min-h-0 flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+              <div className="max-h-[60vh] overflow-y-auto space-y-3 p-4">
                 {log.map((e) => (
                   <EntryCard key={e.id} entry={e} interactive={false} />
                 ))}
                 {log.length === 0 && <p className="cmdline text-center py-6">尚无历史回合。</p>}
               </div>
-              <footer className="shrink-0 px-4 pb-3">
+              <footer className="px-4 pb-3">
                 <GoldLine />
                 <div className="flex items-center justify-between">
                   <p className="cmdline">当前回合 #{log.length}</p>
