@@ -7,6 +7,7 @@ import type { SceneThemeKey } from '../../ui/theme'
 import { callNarrator, narrateSystem, sanitizeOptions, buildSystemPrompt, isOfflineError } from '../narrator/llm'
 import { routeCommand, executeSystem, resolveOpening } from './actions'
 import { advanceTime, fmtTimeShort } from './time'
+import { chance } from './dice'
 import { WORLD_BIBLE } from '../data/worldview'
 import { NPCS } from '../data/world'
 import { ENLIGHTENMENT_BRANCHES, TECHNIQUES } from '../data/systems'
@@ -331,6 +332,8 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       const applied = applyDeltas(nextState, result.deltas)
       nextState = applied.state
       deltas = applied.applied
+      // 日常小概率时间流逝：瞬时回合 20% 消耗 1 个月（琐事消磨时光）
+      if (timePassedMonths === 0 && chance(0.2)) timePassedMonths = 1
       engine = 'llm'
     } catch (e) {
       // 真断网 → 冻结（抛给调用方停留+重试）；业务失败（多次重试仍空白/报错）→ 最小化续行，保证游戏可继续
