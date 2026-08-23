@@ -347,7 +347,12 @@ export async function callNarrator(
         const parsed = parseJsonContent(content) as NarratorTurn
         const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
         const narrative = sanitizeNarrative(rawNarrative) || '天道静默不语。'
-        return { ...parsed, narrative, options: sanitizeOptions(parsed.options) }
+        return {
+          ...parsed,
+          narrative,
+          summary: sanitizeSummary(parsed.summary),
+          options: sanitizeOptions(parsed.options),
+        }
       }
       // 纯文本档：模型可能仍输出 JSON 形态文本 → 先尝试解析，失败再当纯文本
       const trimmed = content.trim()

@@ -34,7 +34,6 @@ function EntryCard({
     <article className="panel shrink-0 px-4 py-3">
       <p className="cmdline flex items-center gap-2">
         <span>{entry.time}</span>
-        {entry.action && <span className="text-[color:var(--ink-muted)]/80">「{entry.action.slice(0, 24)}」</span>}
         <EngineTag engine={entry.engine} />
         {typeof entry.passedMonths === 'number' && (
           <span className={`rounded px-1.5 text-xs font-bold ${entry.passedMonths > 0 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'}`}>
