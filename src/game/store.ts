@@ -93,7 +93,7 @@ function persistCurrentSession(state: GameState, log: LogEntry[], pendingOptions
  *  （旧版 nextId 每次刷新从 1 计数，导致旧日志 id 与新回合冲突 → React key 重复、历史弹窗渲染错乱） */
 function normalizeLog(log: LogEntry[]): LogEntry[] {
   const seen = new Set<number>()
-  return log.map((e, i) => {
+  return log.map((e) => {
     let narr = e.narrative ?? ''
     if (hasLatexMarkup(narr)) narr = sanitizeNarrative(narr)
     if (!narr.trim()) narr = `（${e.time ?? ''}，天道静默）`
