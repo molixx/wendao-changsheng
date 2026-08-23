@@ -74,6 +74,19 @@ export interface NarratorMessage {
   content: string
 }
 
+/** 清洗 summary：剥掉开头可能混入的时间行（「入道一年·三月，」「天玄历387年 · 春，」等），截 60 字 */
+export function sanitizeSummary(s: unknown): string | undefined {
+  if (typeof s !== 'string') return undefined
+  let t = s.trim()
+  // 剥开头时间行（可带括号/全角括号）：入道X年[·X月][·X季]、天玄历X年[·X季]
+  t = t.replace(
+    /^[（(]?\s*(?:(?:入道|天玄历)\s*[一二三四五六七八九十百千万两元\d]+\s*年)\s*(?:[·,，]?\s*[一二三四五六七八九十两\d]+\s*月)?\s*(?:[·,，]?\s*[季春秋夏冬])?\s*[·,，、:：]?\s*[)）]?\s*/,
+    '',
+  )
+  t = t.trim().slice(0, 60)
+  return t || undefined
+}
+
 /** 组装 system 提示：世界观 + 压缩世界快照 + 输出协议 */
 export function buildSystemPrompt(worldBible: string, worldSnapshot: string): string {
   return `${worldBible}
@@ -84,7 +97,7 @@ ${worldSnapshot}
 【输出协议】
 你每回合必须且只能输出一个 JSON 对象（不要输出任何 JSON 之外的内容），格式：
 {
-  "summary": "本回合事件简述（**必填，第一字段，先写它**！20~40 字一句话概括整回合剧情：发生了什么事、结果如何，**且必须包含本回合时间流逝**，如「闭关三月修为+30」「赶路数日抵达坊市」「瞬时空闲未流逝时间」「静养半月伤势好转」。铁律：必须独立概述，禁止截取 narrative 开头）",
+  "summary": "本回合事件简述（**必填，第一字段，先写它**！20~40 字一句话概括：发生了什么事、结果如何、**本回合流逝多久**，如「闭关三月修为+30」「赶路数日抵达坊市」「瞬时空闲未流逝时间」。铁律：**禁止写「入道X年·X月」「天玄历X年」这类当前时间行**——时间行由前端自动显示；禁止截取 narrative 开头）",
   "narrative": "剧情推进，篇幅不限，可充分展开情境、心理、对话与细节；必须是纯中文文字",
   "options": [ {"text": "选项文字（长度、数量不限，3~4 个）", "tag": "可选简短语义标签，自由发挥，如 平和/机缘/风险/情缘/魔道/凶险/隐秘", "note": "可选备注，仅在你认为玩家需要关键补充信息时添加，如 价格/成功率/风险提示；否则省略该字段"} ],
   "timePassedMonths": 0,
@@ -247,7 +260,7 @@ export async function narrateSystem(
     const months = typeof parsed.timePassedMonths === 'number' ? Math.max(0, Math.min(12, parsed.timePassedMonths)) : undefined
     return {
       narrative,
-      summary: typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 60) : undefined,
+      summary: sanitizeSummary(parsed.summary),
       options: sanitizeOptions(parsed.options),
       timePassedMonths: months,
       deltas: parsed.deltas,
@@ -288,7 +301,7 @@ export async function narrateOpening(
   if (!narrative) throw new Error('开局演绎返回空')
   return {
     narrative,
-    summary: typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 60) : undefined,
+    summary: sanitizeSummary(parsed.summary),
     options: sanitizeOptions(parsed.options),
   }
 }
