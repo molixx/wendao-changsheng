@@ -43,7 +43,15 @@ interface GameStore {
   clearError: () => void
 }
 
-function makeLogEntry(state: GameState, narrative: string, options: { text: string; tag?: string }[], scene?: string, deltas?: string[]): LogEntry {
+function makeLogEntry(
+  state: GameState,
+  narrative: string,
+  options: { text: string; tag?: string }[],
+  scene?: string,
+  deltas?: string[],
+  action?: string,
+  engine?: LogEntry['engine'],
+): LogEntry {
   return {
     id: nextId(),
     time: fmtTimeShort(state.timeline),
@@ -51,6 +59,8 @@ function makeLogEntry(state: GameState, narrative: string, options: { text: stri
     options,
     scene: scene as LogEntry['scene'],
     deltas,
+    action,
+    engine,
   }
 }
 
@@ -189,13 +199,14 @@ export const useGame = create<GameStore>()(
         if (!game || busy) return
         set({ busy: true, error: null })
         try {
-          const history = log.slice(-8).map((e) => ({
-            role: 'user' as const,
-            content: `（回合 ${e.time}）`,
-          }))
-          history.push({ role: 'user', content: input })
+          // 重建对话历史：玩家输入 + AI 回答成对回传，AI 才能记得自己说过什么
+          const history = log.slice(-8).flatMap((e) => [
+            { role: 'user' as const, content: e.action ?? `（回合 ${e.time}）` },
+            { role: 'assistant' as const, content: e.narrative },
+          ])
+          history.push({ role: 'user' as const, content: input })
           const out = await resolveTurn({ state: game, action: input, history, log }, settings)
-          const entry = makeLogEntry(out.state, out.narrative, out.options, out.scene, out.deltas)
+          const entry = makeLogEntry(out.state, out.narrative, out.options, out.scene, out.deltas, input, out.engine)
           const newLog = [...log, entry]
           const s2 = out.state
           // 失败回退提示：突破失败 / 战斗失利（快照已在事件前写好）

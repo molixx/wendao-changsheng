@@ -91,6 +91,39 @@ export async function testConnection(
   }
 }
 
+/** 系统指令的 AI 演绎：代码结算结果 → LLM 写成 1~3 句修仙文风叙事（纯文本，非 JSON） */
+export async function narrateSystem(
+  settings: NarratorSettings,
+  system: string,
+  history: NarratorMessage[],
+  action: string,
+  resultSummary: string,
+): Promise<string> {
+  const base = settings.baseUrl.replace(/\/+$/, '')
+  const isDeepSeek = /deepseek\.com$/i.test(base)
+  const body: Record<string, unknown> = {
+    model: settings.model,
+    messages: [
+      { role: 'system', content: `${system}\n\n【本轮任务】玩家执行了行动「${action}」，系统已结算数值。请用 1~3 句修仙文风，把结算结果演绎成剧情叙述：不要罗列数字清单、不要重复结算原文，直接写出情境与人物动作。只输出叙述文本，不要任何 JSON 或标记。` },
+      ...history,
+      { role: 'user', content: `结算结果：${resultSummary}` },
+    ],
+    temperature: settings.temperature,
+    max_tokens: 300,
+  }
+  if (isDeepSeek) body.thinking = { type: 'disabled' }
+  const res = await fetch(`${base}/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}` },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`LLM 演绎失败（${res.status}）：${(await res.text()).slice(0, 200)}`)
+  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] }
+  const content = data.choices?.[0]?.message?.content?.trim()
+  if (!content) throw new Error('LLM 演绎返回为空')
+  return content
+}
+
 /** 调用 OpenAI 兼容端点 */
 export async function callNarrator(
   settings: NarratorSettings,

@@ -4,7 +4,7 @@
 import type { GameState } from '../state'
 import type { NarratorSettings } from '../state'
 import type { SceneThemeKey } from '../../ui/theme'
-import { callNarrator, buildSystemPrompt } from '../narrator/llm'
+import { callNarrator, narrateSystem, buildSystemPrompt } from '../narrator/llm'
 import { resolveOffline } from './offline'
 import { routeCommand, executeSystem, resolveOpening } from './actions'
 import { advanceTime, fmtTimeShort } from './time'
@@ -17,6 +17,10 @@ export interface LogEntry {
   options: { text: string; tag?: string }[]
   scene?: SceneThemeKey
   deltas?: string[]
+  /** 玩家本回合的输入（供 LLM 历史重建） */
+  action?: string
+  /** 处理引擎：llm=AI 演绎 / code=代码模板 / offline=离线兜底 */
+  engine?: 'llm' | 'code' | 'offline'
 }
 
 export interface TurnInput {
@@ -34,6 +38,7 @@ export interface TurnOutput {
   scene?: SceneThemeKey
   deltas?: string[]
   timePassedMonths: number
+  engine: 'llm' | 'code' | 'offline'
 }
 
 let seq = 0
@@ -62,19 +67,35 @@ export function buildWorldSnapshot(state: GameState): string {
 /** 主入口：执行一个回合 */
 export async function resolveTurn(input: TurnInput, settings: NarratorSettings): Promise<TurnOutput> {
   const cmd = routeCommand(input.action)
+  const useLlm = settings.useLlm && settings.apiKey.length > 0
   let isFree = cmd.kind === 'free'
   let narrative = ''
   let options: { text: string; tag?: string }[] = []
   let scene: SceneThemeKey | undefined
   let timePassedMonths = 1
   let deltas: string[] = []
+  let engine: TurnOutput['engine'] = 'code'
   let nextState = input.state
 
   if (!isFree) {
     const sys = executeSystem(cmd, input.state, input.log)
     if (sys) {
       nextState = sys.state
-      narrative = sys.narrative
+      const codeNarrative = sys.narrative
+      // 代码管数值、LLM 管叙事：系统指令在 LLM 可用时也用 AI 演绎（兑现「每回合调用」）
+      if (useLlm) {
+        try {
+          const system = buildSystemPrompt(WORLD_BIBLE, buildWorldSnapshot(input.state))
+          narrative = await narrateSystem(settings, system, input.history, input.action, codeNarrative)
+          engine = 'llm'
+        } catch {
+          narrative = codeNarrative
+          engine = 'code'
+        }
+      } else {
+        narrative = codeNarrative
+        engine = 'code'
+      }
       options = sys.options
       scene = sys.scene
       timePassedMonths = sys.timePassedMonths
@@ -85,7 +106,6 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
   }
 
   if (isFree) {
-    const useLlm = settings.useLlm && settings.apiKey.length > 0
     if (useLlm) {
       try {
         const system = buildSystemPrompt(WORLD_BIBLE, buildWorldSnapshot(input.state))
@@ -95,6 +115,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
         scene = result.scene as SceneThemeKey | undefined
         timePassedMonths = Math.max(1, Math.min(12, result.timePassedMonths ?? 1))
         deltas = result.deltas ? Object.entries(result.deltas).map(([k, v]) => `${k} ${v > 0 ? '+' : ''}${v}`) : []
+        engine = 'llm'
       } catch (e) {
         const offline = resolveOffline(input.state, input.action)
         narrative = `【叙事引擎降级为离线模式】${offline.narrative}`
@@ -102,6 +123,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
         scene = offline.scene
         timePassedMonths = offline.timePassedMonths
         deltas = []
+        engine = 'offline'
       }
     } else {
       const offline = resolveOffline(input.state, input.action)
@@ -110,6 +132,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       scene = offline.scene
       timePassedMonths = offline.timePassedMonths
       deltas = []
+      engine = 'offline'
     }
   }
 
@@ -129,6 +152,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
     scene,
     deltas,
     timePassedMonths,
+    engine,
   }
 }
 
@@ -137,6 +161,6 @@ export function openingTurn(state: GameState): { state: GameState; entry: Omit<L
   const { state: s, narrative, options, scene } = resolveOpening(state)
   return {
     state: { ...s, turn: 0, log: [...s.log, fmtTimeShort(s.timeline)] },
-    entry: { time: fmtTimeShort(s.timeline), narrative, options, scene },
+    entry: { time: fmtTimeShort(s.timeline), narrative, options, scene, engine: 'code' },
   }
 }
