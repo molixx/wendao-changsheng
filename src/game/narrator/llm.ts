@@ -18,6 +18,15 @@ export interface NarratorTurn {
   deltas?: Record<string, number>
 }
 
+/** 剥离 Markdown 代码块围栏（DeepSeek 常用 ```json ... ``` 包裹 JSON，直接 parse 必失败）后解析 JSON */
+export function parseJsonContent(content: string): unknown {
+  let t = (content ?? '').trim()
+  // ```json\n...\n``` 或 ```\n...\n```
+  const fence = t.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```\s*$/)
+  if (fence) t = fence[1].trim()
+  return JSON.parse(t)
+}
+
 /** 是否含 LaTeX/Markup 特征（需要清洗） */
 export function hasLatexMarkup(text: string): boolean {
   return /\\fcolorbox|\\textcolor|\\colorbox|\\begin\{array\}|\\\(|\\\[|\\texttt|\\textbf|\\textit|#[0-9A-Fa-f]{6}/.test(text)
@@ -232,7 +241,7 @@ export async function narrateSystem(
   if (isDeepSeek) body.thinking = { type: 'disabled' }
   const content = await fetchContent(settings, body)
   try {
-    const parsed = JSON.parse(content) as NarratorTurn
+    const parsed = parseJsonContent(content) as NarratorTurn
     const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
     const narrative = sanitizeNarrative(rawNarrative)
     const months = typeof parsed.timePassedMonths === 'number' ? Math.max(0, Math.min(12, parsed.timePassedMonths)) : undefined
@@ -241,6 +250,7 @@ export async function narrateSystem(
       summary: typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 60) : undefined,
       options: sanitizeOptions(parsed.options),
       timePassedMonths: months,
+      deltas: parsed.deltas,
     }
   } catch {
     // 内容非 JSON：若可读则当纯文本叙事（系统指令侧由调用方回退模板叙事）
@@ -272,7 +282,7 @@ export async function narrateOpening(
   }
   if (isDeepSeek) body.thinking = { type: 'disabled' }
   const content = await fetchContent(settings, body)
-  const parsed = JSON.parse(content) as NarratorTurn
+  const parsed = parseJsonContent(content) as NarratorTurn
   const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
   const narrative = sanitizeNarrative(rawNarrative)
   if (!narrative) throw new Error('开局演绎返回空')
@@ -317,7 +327,7 @@ export async function callNarrator(
     try {
       const content = await fetchContent(settings, body)
       if (v.json) {
-        const parsed = JSON.parse(content) as NarratorTurn
+        const parsed = parseJsonContent(content) as NarratorTurn
         const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
         const narrative = sanitizeNarrative(rawNarrative) || '天道静默不语。'
         return { ...parsed, narrative, options: sanitizeOptions(parsed.options) }
@@ -327,7 +337,7 @@ export async function callNarrator(
       let narrative = ''
       let opts: { text: string; tag?: string }[] = []
       try {
-        const parsed = JSON.parse(trimmed) as NarratorTurn
+        const parsed = parseJsonContent(trimmed) as NarratorTurn
         if (parsed && typeof parsed.narrative === 'string') {
           narrative = sanitizeNarrative(parsed.narrative)
           opts = sanitizeOptions(parsed.options)
