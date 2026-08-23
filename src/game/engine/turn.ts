@@ -243,6 +243,63 @@ export function applyDeltas(state: GameState, deltas?: Record<string, unknown>):
   return applied.length ? { state: s, applied } : { state, applied: [] }
 }
 
+/** 中文数字（一~九十九/阿拉伯数字）转数值 */
+function cnToNum(s: string): number | null {
+  if (/^\d+$/.test(s)) return Number(s)
+  const digits: Record<string, number> = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 }
+  if (s === '十') return 10
+  if (s.length === 2 && s[0] === '十') return 10 + (digits[s[1]] ?? 0)
+  if (s.length === 2 && s[1] === '十') return (digits[s[0]] ?? 0) * 10
+  if (s.length === 3 && s[1] === '十') return (digits[s[0]] ?? 0) * 10 + (digits[s[2]] ?? 0)
+  return digits[s] ?? null
+}
+
+/** 从 AI 叙事中推断流逝月数：AI 叙述提到「几日/数日/半月/旬/数月/月余/半年/一年」等时间表述时，
+ *  自动折算成小额月数（小数月会跨回合累积，见 applyAging）。多表述并存时取最大（避免重复计数）。
+ *  带「前/之前」等回溯锚点的时间表述（如「三年前」「半月前」指过去的背景，非本回合流逝）不计入。 */
+export function inferTimeFromNarrative(narrative: string): number {
+  if (!narrative) return 0
+  const candidates: number[] = []
+  /** 跳过回溯锚点：表述后紧跟「前」字（三年前/半月前/一月之前…） */
+  const isFlashback = (endIdx: number) => {
+    const after = narrative.slice(endIdx, endIdx + 2)
+    return after.includes('前')
+  }
+  // 年/载：N年 → N×12（N=1~12）
+  for (const m of narrative.matchAll(/([一二三四五六七八九十两\d]+)\s*(?:年|载)/g)) {
+    if (isFlashback(m.index! + m[0].length)) continue
+    const n = cnToNum(m[1])
+    if (n && n >= 1) candidates.push(Math.min(12, n * 12))
+  }
+  // 月：半年=6、半月=0.5、月余≈1.2、数月≈2.5、N月/N个月=N（1~12）
+  const pushPhrase = (re: RegExp, v: number) => {
+    for (const m of narrative.matchAll(re)) {
+      if (isFlashback(m.index! + m[0].length)) continue
+      candidates.push(v)
+      break // 同一短语只计一次
+    }
+  }
+  pushPhrase(/半年/g, 6)
+  pushPhrase(/半月/g, 0.5)
+  pushPhrase(/月余|月许|一月有余/g, 1.2)
+  pushPhrase(/数月|几月|几个月/g, 2.5)
+  for (const m of narrative.matchAll(/([一二三四五六七八九十两\d]+)\s*(?:个)?月/g)) {
+    if (isFlashback(m.index! + m[0].length)) continue
+    const n = cnToNum(m[1])
+    if (n && n >= 1 && n <= 12) candidates.push(n)
+  }
+  // 日/天/旬：旬≈1/3、N日/N天≈N/30（封顶1）、数日/几日/几天≈0.3
+  pushPhrase(/旬|十来天/g, 1 / 3)
+  pushPhrase(/数日|几日|几天|数天|些许时日/g, 0.3)
+  for (const m of narrative.matchAll(/([一二三四五六七八九十两\d]+)\s*(?:日|天)/g)) {
+    if (isFlashback(m.index! + m[0].length)) continue
+    const n = cnToNum(m[1])
+    if (n && n >= 1) candidates.push(Math.min(1, n / 30))
+  }
+  if (candidates.length === 0) return 0
+  return Math.min(12, Math.max(...candidates))
+}
+
 /** 寿元对账：剩余寿元 = min(当前, 寿元上限 - 年龄)（修复旧档/创角期满寿元的偏差） */
 export function reconcileLifespan(state: GameState): GameState {
   const cap = Math.max(0, state.res.lifespanMax - state.player.age)
@@ -328,11 +385,15 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       narrative = result.narrative
       options = sanitizeOptions(result.options)
       scene = result.scene as SceneThemeKey | undefined
-      timePassedMonths = Math.max(0, Math.min(12, Math.round(result.timePassedMonths ?? 0)))
+      timePassedMonths = Math.max(0, Math.min(12, Number(result.timePassedMonths) || 0))
       const applied = applyDeltas(nextState, result.deltas)
       nextState = applied.state
       deltas = applied.applied
-      // 日常小概率时间流逝：瞬时回合 20% 消耗 1 个月（琐事消磨时光）
+      // 智能时间流逝：① AI 明确给的月数优先；② AI 没给但叙事里提到「几日/半月/数月」等 → 自动折算小额月数（小数月跨回合累积）；
+      // ③ 都没提 → 小概率 20% 消磨 1 个月（琐事如常，岁月如流）
+      if (timePassedMonths === 0) {
+        timePassedMonths = inferTimeFromNarrative(result.narrative)
+      }
       if (timePassedMonths === 0 && chance(0.2)) timePassedMonths = 1
       engine = 'llm'
     } catch (e) {
@@ -350,8 +411,9 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
   // 叙事兜底：任何路径都不允许空白叙事（否则会污染后续 LLM 历史）
   if (!narrative || !narrative.trim()) narrative = '天道静默不语，只是静静注视着你。'
 
-  // 时间推进（代码权威；战斗回合不流逝时间）
-  const newTimeline = advanceTime(input.state.timeline, timePassedMonths)
+  // 时间推进（代码权威；战斗回合不流逝时间）。小数月（如「数日」折算的 0.3）只进衰老累积器，
+  // 时间线只按整月推进，避免出现「二月半」
+  const newTimeline = advanceTime(input.state.timeline, Math.floor(timePassedMonths))
   // 每个回合固定提供「回到主剧情」入口（未在选项中时追加）
   if (!options.some((o) => o.text.includes('回到主剧情'))) {
     options = [...options, { text: '回到主剧情', tag: '平和' }]
