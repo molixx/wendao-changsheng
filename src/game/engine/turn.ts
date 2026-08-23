@@ -100,7 +100,8 @@ function toNumber(v: unknown): number | null {
 }
 
 /** 校验并应用 LLM 的数值变更：字段别名映射、增量/绝对值双语义、钳制、上限封顶、不为负
- *  mode='status'：系统指令回合专用——数值已由代码结算，只采纳状态类字段（伤势/异常/心境），防止双加 */
+ *  mode='status'：系统指令回合专用——数值已由代码结算，跳过数值与六维（防双加），
+ *  但好感/背包/悟道/技艺/伤势/异常/心境/所在地/主线仍采纳（这些无双加风险） */
 export function applyDeltas(
   state: GameState,
   deltas?: Record<string, unknown>,
@@ -159,7 +160,7 @@ export function applyDeltas(
   }
   // ── 好感（relationships，0~100，按 NPC 名/id）──
   const rawAff = deltas.affinity ?? deltas.好感 ?? deltas.relationships
-  if (mode === 'full' && rawAff && typeof rawAff === 'object') {
+  if (rawAff && typeof rawAff === 'object') {
     const rel = { ...s.relationships }
     for (const [k, rv] of Object.entries(rawAff as Record<string, unknown>)) {
       const npc = NPCS.find((n) => n.id === k || n.name === k || k.includes(n.name))
@@ -177,7 +178,7 @@ export function applyDeltas(
   }
   // ── 背包物品（bag：正加负减，不为负）──
   const rawBag = deltas.bag ?? deltas.物品 ?? deltas.items
-  if (mode === 'full' && rawBag && typeof rawBag === 'object') {
+  if (rawBag && typeof rawBag === 'object') {
     const bag = { ...s.bag }
     for (const [k, rv] of Object.entries(rawBag as Record<string, unknown>)) {
       const v = toNumber(rv)
@@ -229,9 +230,28 @@ export function applyDeltas(
       }
     }
   }
+  // ── 所在地（location：中文地名，如「南疆·赤炎」「青云宗」；状态卡与快照同步）──
+  const rawLoc = deltas.location ?? deltas.所在地
+  if (typeof rawLoc === 'string' && rawLoc.trim()) {
+    const next = rawLoc.trim().slice(0, 20)
+    const cur = s.flags.location ?? '东洲·青岳'
+    if (next !== cur) {
+      s = { ...s, flags: { ...s.flags, location: next } }
+      applied.push(`所在地 ${cur}→${next}`)
+    }
+  }
+  // ── 主线（mainQuest：主剧情提示，AI 推进主线时更新）──
+  const rawQuest = deltas.mainQuest ?? deltas.主线
+  if (typeof rawQuest === 'string') {
+    const next = rawQuest.trim() ? rawQuest.trim().slice(0, 40) : ''
+    if (next !== (s.mainQuest ?? '')) {
+      s = { ...s, mainQuest: next }
+      applied.push(`主线 ${next || '无'}`)
+    }
+  }
   // ── 悟道（enlightenment：1~9）／技艺（technique：1~5）──
   const rawEnl = deltas.enlightenment ?? deltas.悟道
-  if (mode === 'full' && rawEnl && typeof rawEnl === 'object') {
+  if (rawEnl && typeof rawEnl === 'object') {
     const enl = { ...s.enlightenment }
     for (const [k, rv] of Object.entries(rawEnl as Record<string, unknown>)) {
       const branch = ENLIGHTENMENT_BRANCHES.find((b) => b === k || k.includes(b) || b.includes(k))
@@ -248,7 +268,7 @@ export function applyDeltas(
     s = { ...s, enlightenment: enl }
   }
   const rawTech = deltas.technique ?? deltas.技艺
-  if (mode === 'full' && rawTech && typeof rawTech === 'object') {
+  if (rawTech && typeof rawTech === 'object') {
     const tech = { ...s.techniqueLevels }
     for (const [k, rv] of Object.entries(rawTech as Record<string, unknown>)) {
       const t = TECHNIQUES.find((x) => x.id === k || x.name === k || k.includes(x.name))
