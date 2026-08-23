@@ -7,7 +7,6 @@ import type { SceneThemeKey } from '../../ui/theme'
 import { callNarrator, narrateSystem, sanitizeOptions, buildSystemPrompt, isOfflineError } from '../narrator/llm'
 import { routeCommand, executeSystem, resolveOpening } from './actions'
 import { advanceTime, fmtTimeShort } from './time'
-import { chance } from './dice'
 import { WORLD_BIBLE } from '../data/worldview'
 import { NPCS } from '../data/world'
 import { ENLIGHTENMENT_BRANCHES, TECHNIQUES } from '../data/systems'
@@ -326,6 +325,19 @@ export function inferTimeFromNarrative(narrative: string): number {
   return Math.min(12, Math.max(...candidates))
 }
 
+/** 模糊时间迹象：叙事未写明确数字、但暗示时间流逝（许久/多日/光阴荏苒/春去秋来…）。
+ *  有迹象时采信 AI 月数（AI 是语义权威）；无任何迹象时 AI 给的月数一律作废归 0（挡模型惯性 +1/+12） */
+const VAGUE_TIME_RE =
+  /许久|良久|多日|一段时|一段岁月|不知岁月|光阴荏苒|时光飞|岁月流|日月如梭|转瞬|倏忽|日久|些时日|不少时|时光匆匆|弹指|眨眼|寒来暑往|冬去春来|春去秋来/
+
+/** 时间仲裁（统一口径）：① 明确数字短语 → 叙事折算（文本铁证）；② 模糊迹象 → 信 AI（AI 未给按 1 月）；③ 无迹象 → 0 */
+function settleTime(narrative: string, aiMonths: number): number {
+  const inferred = inferTimeFromNarrative(narrative)
+  if (inferred > 0) return inferred
+  if (VAGUE_TIME_RE.test(narrative)) return aiMonths > 0 ? aiMonths : 1
+  return 0
+}
+
 /** 寿元对账：剩余寿元 = min(当前, 寿元上限 - 年龄)（修复旧档/创角期满寿元的偏差） */
 export function reconcileLifespan(state: GameState): GameState {
   const cap = Math.max(0, state.res.lifespanMax - state.player.age)
@@ -392,14 +404,12 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       }
       scene = sys.scene
       deltas = []
-      // 时间流逝：仅显式「闭关 N 月/N 年」用代码时长（唯一权威）；
-      // 其余系统指令（修炼/悟道/疗伤/炼丹…）一律由叙事决定——叙事短语推理优先，AI 声明 >1 才兜底，否则 0。
-      // 绝不按「每回合」固定 +1（这正是月份随回合数增长的老病根）
+      // 时间仲裁：仅显式「闭关 N 月/N 年」用代码时长；其余系统指令由 AI 叙事决定——
+      // 明确短语折算 / 模糊迹象信 AI / 无迹象归 0（绝不每回合 +1）
       if (cmd.kind === 'cultivate' && typeof cmd.months === 'number') {
         timePassedMonths = sys.timePassedMonths
       } else {
-        const inferred = inferTimeFromNarrative(narrative)
-        timePassedMonths = inferred > 0 ? inferred : aiMonths > 1 ? aiMonths : 0
+        timePassedMonths = settleTime(narrative, aiMonths)
       }
     } else {
       isFree = true
@@ -419,13 +429,12 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       const applied = applyDeltas(nextState, result.deltas)
       nextState = applied.state
       deltas = applied.applied
-      // 自由行动的时间流逝：① 叙事短语推理（代码解析文本，最可靠）优先；
-      // ② AI 声明的月数仅当 >1 且叙事未推理到时采信（AI 惯性给 1 一律视为 0，杜绝每回合 +1）；
-      // ③ 都没提 → 小概率 20% 消磨 1 个月（琐事如常，岁月如流）
-      const inferred = inferTimeFromNarrative(result.narrative)
-      const aiMonths = Math.max(0, Math.min(12, Number(result.timePassedMonths) || 0))
-      timePassedMonths = inferred > 0 ? inferred : aiMonths > 1 ? aiMonths : 0
-      if (timePassedMonths === 0 && chance(0.2)) timePassedMonths = 1
+      // 时间仲裁（AI 是语义权威，代码只守一条铁律）：
+      // ① 叙事有明确数字时间短语（数日/半月/三月/一年…）→ 按叙事折算（文本是铁证）；
+      // ② 叙事只有模糊时间迹象（许久/多日/光阴荏苒…）→ 采信 AI 月数（AI 未给按 1 月）；
+      // ③ 叙事完全没有时间迹象 → 0（AI 惯性给的 1/12 一律作废，绝不每回合 +1）
+      const aiMonths = typeof result.timePassedMonths === 'number' ? Math.max(0, Math.min(12, result.timePassedMonths)) : 0
+      timePassedMonths = settleTime(result.narrative, aiMonths)
       engine = 'llm'
     } catch (e) {
       // 真断网 → 冻结（抛给调用方停留+重试）；业务失败（多次重试仍空白/报错）→ 最小化续行，保证游戏可继续
