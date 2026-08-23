@@ -59,6 +59,7 @@ function makeLogEntry(
   engine?: LogEntry['engine'],
   passedMonths?: number,
   aiDeltas?: Record<string, unknown>,
+  summary?: string,
 ): LogEntry {
   return {
     id: nextId(),
@@ -71,6 +72,7 @@ function makeLogEntry(
     engine,
     passedMonths,
     aiDeltas,
+    summary,
   }
 }
 
@@ -262,7 +264,7 @@ export const useGame = create<GameStore>()(
           ])
           history.push({ role: 'user' as const, content: input })
           const out = await resolveTurn({ state: game, action: input, history, log }, settings)
-          const entry = makeLogEntry(out.state, out.narrative, out.options, out.scene, out.deltas, input, out.engine, out.timePassedMonths, out.rawDeltas)
+          const entry = makeLogEntry(out.state, out.narrative, out.options, out.scene, out.deltas, input, out.engine, out.timePassedMonths, out.rawDeltas, out.summary)
           const newLog = [...log, entry]
           const s2 = out.state
           // 失败回退提示：突破失败 / 战斗失利（快照已在事件前写好）

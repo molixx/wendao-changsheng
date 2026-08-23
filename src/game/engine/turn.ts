@@ -27,6 +27,8 @@ export interface LogEntry {
   passedMonths?: number
   /** AI 原始建议的 deltas（展示用：本回合 AI 建议改什么，便于核对采纳/忽略） */
   aiDeltas?: Record<string, unknown>
+  /** 本回合事件摘要（AI 返回或叙事首句兜底；历史浏览用） */
+  summary?: string
 }
 
 export interface TurnInput {
@@ -40,6 +42,8 @@ export interface TurnInput {
 export interface TurnOutput {
   state: GameState
   narrative: string
+  /** 本回合事件摘要（AI 返回或叙事首句兜底） */
+  summary?: string
   options: { text: string; tag?: string }[]
   scene?: SceneThemeKey
   deltas?: string[]
@@ -363,6 +367,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
   let timePassedMonths = 0
   let deltas: string[] = []
   let rawDeltas: Record<string, unknown> | undefined
+  let summary: string | undefined
   let engine: TurnOutput['engine'] = 'code'
   let nextState = input.state
 
@@ -376,6 +381,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       try {
         const narrated = await narrateSystem(settings, system, input.history, input.action, codeNarrative)
         narrative = narrated.narrative || codeNarrative
+        summary = narrated.summary
         options = sanitizeOptions(narrated.options)
         if (options.length === 0) options = sys.options
         // AI 返回的时间就是时间：返回多少推进多少；未返回 → 0（不流逝）
@@ -408,6 +414,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
     try {
       const result = await callNarrator(settings, system, input.history, llmAction)
       narrative = result.narrative
+      summary = result.summary
       options = sanitizeOptions(result.options)
       // 场景主题由代码（系统指令）决定，忽略 AI 返回的 scene——否则 AI 乱给值导致背景在集市/洞府之间乱跳
       scene = undefined
@@ -434,6 +441,10 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
 
   // 叙事兜底：任何路径都不允许空白叙事（否则会污染后续 LLM 历史）
   if (!narrative || !narrative.trim()) narrative = '天道静默不语，只是静静注视着你。'
+  // 摘要兜底：AI 未返回时用叙事首句（截 60 字）
+  if (!summary || !summary.trim()) {
+    summary = narrative.replace(/\n+/g, ' ').trim().slice(0, 60)
+  }
 
   // 时间推进（代码权威；战斗回合不流逝时间）。小数月（如「数日」折算的 0.3）跨回合累积在
   // flags.ageMonths：攒满的整月同步推进时间线 + 年龄/寿元，只留不足一月的余数，
@@ -462,6 +473,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
   return {
     state: newState,
     narrative,
+    summary,
     options,
     scene,
     deltas,

@@ -6,8 +6,10 @@ import type { NarratorSettings } from '../state'
 export interface NarratorTurn {
   /** 剧情推进（篇幅不限，AI 自由发挥） */
   narrative: string
+  /** 本回合事件摘要（可选，20~40 字；用于历史快速浏览） */
+  summary?: string
   /** 选项（数量/长度不限，AI 按情境生成） */
-  options: { text: string; tag?: string }[]
+  options: { text: string; tag?: string; note?: string }[]
   /** 本回合推进月数（默认 1；闭关等可大于 1） */
   timePassedMonths?: number
   /** 场景主题（qingyu/xuanzi/zhusha/taofen/ziqi/liujin/tianqing/zhuqing） */
@@ -74,6 +76,7 @@ ${worldSnapshot}
 你每回合必须且只能输出一个 JSON 对象（不要输出任何 JSON 之外的内容），格式：
 {
   "narrative": "剧情推进，篇幅不限，可充分展开情境、心理、对话与细节；必须是纯中文文字",
+  "summary": "本回合事件摘要（可选，20~40 字一句话：发生了什么事/玩家状态如何，如「坊市购入聚气丹×2」「闭关三月修为+30」「遭妖兽袭击重伤」；用于历史快速浏览，省略则前端用叙事首句兜底）",
   "options": [ {"text": "选项文字（长度、数量不限，3~4 个）", "tag": "可选简短语义标签，自由发挥，如 平和/机缘/风险/情缘/魔道/凶险/隐秘", "note": "可选备注，仅在你认为玩家需要关键补充信息时添加，如 价格/成功率/风险提示；否则省略该字段"} ],
   "timePassedMonths": 0,
   "deltas": {}
@@ -232,7 +235,12 @@ export async function narrateSystem(
     const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
     const narrative = sanitizeNarrative(rawNarrative)
     const months = typeof parsed.timePassedMonths === 'number' ? Math.max(0, Math.min(12, parsed.timePassedMonths)) : undefined
-    return { narrative, options: sanitizeOptions(parsed.options), timePassedMonths: months }
+    return {
+      narrative,
+      summary: typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 60) : undefined,
+      options: sanitizeOptions(parsed.options),
+      timePassedMonths: months,
+    }
   } catch {
     // 内容非 JSON：若可读则当纯文本叙事（系统指令侧由调用方回退模板叙事）
     return { narrative: content.trim() ? sanitizeNarrative(content).slice(0, 1200) : '', options: [] }

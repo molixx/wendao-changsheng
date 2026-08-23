@@ -93,6 +93,32 @@ function EntryCard({
   )
 }
 
+/** 历史摘要行：紧凑显示（时间 + 事件摘要 + 流逝），点击展开该回合全文（只读） */
+function SummaryRow({ entry }: { entry: LogEntry }) {
+  const [open, setOpen] = useState(false)
+  const summary = entry.summary ?? entry.narrative.replace(/\s+/g, ' ').slice(0, 60)
+  return (
+    <div className="border-b border-[color:var(--ink-muted)]/15 last:border-0">
+      <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-white/60">
+        <span className={`cmdline shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
+        <span className="cmdline shrink-0">{entry.time}</span>
+        <span className="min-w-0 flex-1 truncate text-sm">{summary}</span>
+        <EngineTag engine={entry.engine} />
+        {typeof entry.passedMonths === 'number' && entry.passedMonths > 0 && (
+          <span className="shrink-0 rounded bg-amber-100 px-1.5 text-xs font-bold text-amber-800">
+            {Number(entry.passedMonths.toFixed(1))}月
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="px-4 pb-3">
+          <EntryCard entry={entry} interactive={false} />
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function StoryLog() {
   const { log, busy, error, submitAction, clearError, turnError } = useGame()
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -174,18 +200,18 @@ export function StoryLog() {
         <div className="panel px-4 py-6 text-center cmdline">天地初开，道途未启。</div>
       )}
 
-      {/* 历史回合模态弹窗（只读） */}
+      {/* 历史回合模态弹窗（只读；紧凑摘要列表，点击展开全文） */}
       {historyOpen && (
         <div className="fixed inset-0 z-[60] flex overflow-y-auto bg-black/30 p-4" onClick={() => setHistoryOpen(false)}>
           <div className="m-auto w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
             <section className="panel">
               <header className="panel-title flex items-center justify-between">
                 <span>历史回合 · 共 {log.length} 回合</span>
-                <span className="text-sm font-normal opacity-90">仅可查看，不可重复触发</span>
+                <span className="text-sm font-normal opacity-90">点击条目展开全文（只读）</span>
               </header>
-              <div className="max-h-[60vh] overflow-y-auto space-y-3 p-4">
+              <div className="max-h-[60vh] overflow-y-auto p-2">
                 {log.map((e) => (
-                  <EntryCard key={e.id} entry={e} interactive={false} />
+                  <SummaryRow key={e.id} entry={e} />
                 ))}
                 {log.length === 0 && <p className="cmdline text-center py-6">尚无历史回合。</p>}
               </div>
