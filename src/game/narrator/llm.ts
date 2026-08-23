@@ -71,11 +71,11 @@ ${worldSnapshot}
 {
   "narrative": "剧情推进，篇幅不限，可充分展开情境、心理、对话与细节；必须是纯中文文字",
   "options": [ {"text": "选项文字（长度、数量不限，3~4 个）", "tag": "可选简短语义标签，自由发挥，如 平和/机缘/风险/情缘/魔道/凶险/隐秘"} ],
-  "timePassedMonths": 1,
+  "timePassedMonths": 0,
   "scene": "qingyu|xuanzi|zhusha|taofen|ziqi|liujin|tianqing|zhuqing",
   "deltas": {}
 }
-timePassedMonths（0~12，缺省为 0 即不流逝）：按剧情实际流逝月数决定——瞬时/日常小动作 0、赶路/闭关等有明确时间流逝时返回对应月数（数月 2~6、一年 12）；叙事中提到时间流逝时**必须**返回相符的月数，不要无谓地每次 +1。
+timePassedMonths（0~12，**默认必须为 0，即本回合不流逝时间**）：只有叙事中明确发生了时间流逝时才返回对应月数——瞬时/日常小动作（说话、闲逛、打听、思考等）一律 0；赶路/闭关/炼丹等有明确时长描述时返回相符月数（数日≈0、半月=0.5 可返回 0，数月 2~6、一年 12）。铁律：**绝不要因为"每回合"就无谓地 +1**，更不要把 1 当默认值；叙事里没写时间流逝就返回 0。
 deltas 规则（可选，影响玩家状态卡）：前端会校验并钳制到合法范围：
 - 数值：hp(气血)/mp(灵力)/cult(修为)/spirit(灵石)/merit(功德)/karma(业力)/lifespan(寿元)，带符号增量或绝对值
 - stats（六维）：{"stats": {"悟性": 1, "道心": -1}}，范围 1~20
@@ -206,8 +206,8 @@ export async function narrateSystem(
         content: `${system}\n\n【本轮任务】玩家刚刚执行了一个行动，系统已按世界规则结算数值（玩家行动与结算结果见最后一条 user 消息）。请：
 1. 用修仙文风把结算结果演绎成剧情叙述：不要罗列数字清单、不要重复结算原文，直接写出情境、人物动作与细节，篇幅不限。
 2. 依据当前情境生成下一步选项（数量、长度不限（3~4 个）；可带简短语义标签，自由发挥）。
-3. 给出本回合流逝月数 timePassedMonths（0~12）：系统已结算数值，时间流逝由你根据情境决定——**不要总是 1**，闭关/赶路可 2~12，瞬时事件 0，且要与叙事中描述的时间相符。
-只输出一个 JSON 对象：{"narrative": "...", "options": [{"text": "...", "tag": "平和"}], "timePassedMonths": 1}，narrative 必须为纯中文文字，不要输出 JSON 之外的任何内容。`,
+3. 给出本回合流逝月数 timePassedMonths（0~12）：系统已结算数值，时间流逝由你根据情境决定——**默认必须是 0**（瞬时事件/日常动作不流逝时间），**绝不要因为"每回合"就无谓地每次 +1**；只有叙事中明确写了闭关/赶路等时间流逝时才返回相符月数（数月 2~6、一年 12），且要与叙事中描述的时间相符。
+只输出一个 JSON 对象：{"narrative": "...", "options": [{"text": "...", "tag": "平和"}], "timePassedMonths": 0}，narrative 必须为纯中文文字，不要输出 JSON 之外的任何内容。`,
       },
       ...history,
       // 玩家选项作为独立 user 消息（让 AI 明确看到玩家做了什么）
@@ -223,7 +223,7 @@ export async function narrateSystem(
     const parsed = JSON.parse(content) as NarratorTurn
     const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
     const narrative = sanitizeNarrative(rawNarrative)
-    const months = typeof parsed.timePassedMonths === 'number' ? Math.max(0, Math.min(12, Math.round(parsed.timePassedMonths))) : undefined
+    const months = typeof parsed.timePassedMonths === 'number' ? Math.max(0, Math.min(12, parsed.timePassedMonths)) : undefined
     return { narrative, options: sanitizeOptions(parsed.options), timePassedMonths: months }
   } catch {
     // 内容非 JSON：若可读则当纯文本叙事（系统指令侧由调用方回退模板叙事）
@@ -319,7 +319,9 @@ export async function callNarrator(
         /* 非 JSON → 走纯文本 */
       }
       if (!narrative) narrative = fallbackNarrative(trimmed)
-      return { narrative, options: opts, timePassedMonths: 1 }
+      // 降级档无法解析结构化时间：不设置 timePassedMonths（undefined），由调用方走叙事短语推理 + 小概率兜底，
+      // 绝不明文 +1（否则每回合都流逝一个月）
+      return { narrative, options: opts }
     } catch (e) {
       if (isOfflineError(e)) throw e // 真断网：不降级，交给调用方冻结
       lastErr = e instanceof Error ? e : new Error(String(e))

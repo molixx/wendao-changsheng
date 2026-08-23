@@ -356,7 +356,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
         if (cmd.kind === 'cultivate') {
           timePassedMonths = sys.timePassedMonths
         } else if (typeof narrated.timePassedMonths === 'number') {
-          timePassedMonths = Math.max(0, Math.min(12, Math.round(narrated.timePassedMonths)))
+          timePassedMonths = Math.max(0, Math.min(12, narrated.timePassedMonths))
         } else {
           timePassedMonths = sys.timePassedMonths
         }
