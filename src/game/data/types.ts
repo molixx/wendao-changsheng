@@ -36,13 +36,15 @@ export interface Physique {
   desc: string
 }
 
-/** 天赋（原文 6.6，默认 5 点天赋点；negative 为负面天赋，cost 为负向返还点数） */
+/** 天赋（原文 6.6，默认 5 点天赋点；negative 为负面天赋，cost 为负向返还点数）
+ *  bonus 为天赋修正，在六维分配 + 出身修正后结算（键用中文：资质/悟性/神识/遁速/道心/仙缘/气血上限/灵力上限/灵石/炼丹） */
 export interface Talent {
   id: string
   name: string
   desc: string
   cost: number
   negative?: boolean
+  bonus?: Record<string, number>
 }
 
 /** 道途（原文 6.7 / 5.2b，六选一）+ 主线钩子 */

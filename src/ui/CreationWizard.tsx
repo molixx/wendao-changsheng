@@ -51,9 +51,51 @@ const emptyDraft: Draft = {
 
 const STEPS = ['基础信息', '出身', '道途', '灵根·体质', '六维·天赋', '确认']
 
+/** 中文键 → 六维键映射（出身/天赋 bonus 结算用） */
+const STAT_BONUS_MAP: Record<string, keyof Stats> = {
+  资质: 'zizhi', 悟性: 'wuxing', 神识: 'shenshi', 遁速: 'dunsu', 道心: 'daoxin', 仙缘: 'xianyuan',
+}
+
+/** 结算出身 + 天赋的属性加成（六维分配后结算，最终钳制 1~20） */
+function applyBonuses(d: Draft): {
+  stats: Stats
+  hpMax: number
+  mpMax: number
+  spirit: number
+  techniqueLevels: Record<string, number>
+} {
+  const stats: Stats = { ...d.stats }
+  let hpMax = 100
+  let mpMax = 80
+  let spirit = 100
+  const techniqueLevels: Record<string, number> = {}
+  const bonusList = [
+    ORIGINS.find((o) => o.id === d.originId)?.bonus,
+    ...d.talentIds.map((id) => TALENTS.find((t) => t.id === id)?.bonus),
+  ].filter((b): b is Record<string, number> => !!b)
+  for (const b of bonusList) {
+    for (const [k, v] of Object.entries(b)) {
+      const statKey = STAT_BONUS_MAP[k]
+      if (statKey) {
+        stats[statKey] = Math.max(STAT_LIMITS.finalMin, Math.min(STAT_LIMITS.finalMax, stats[statKey] + v))
+      } else if (k === '气血' || k === '气血上限') {
+        hpMax = Math.max(20, hpMax + v)
+      } else if (k === '灵力上限') {
+        mpMax = Math.max(10, mpMax + v)
+      } else if (k === '灵石') {
+        spirit = Math.max(0, spirit + v)
+      } else if (k === '炼丹') {
+        techniqueLevels['炼丹'] = Math.max(1, v)
+      }
+    }
+  }
+  return { stats, hpMax, mpMax, spirit, techniqueLevels }
+}
+
 function buildInitialState(d: Draft): GameState {
   const realm = REALMS[0]
   const lifespanMax = LIFESPAN[realm.name] ?? 100
+  const b = applyBonuses(d)
   return {
     version: 1,
     turn: 0,
@@ -71,20 +113,20 @@ function buildInitialState(d: Draft): GameState {
       appearance: d.appearance,
       daoPathId: d.daoPathId,
       talentIds: d.talentIds,
-      stats: { ...d.stats },
+      stats: b.stats,
     },
     res: {
-      hp: 100, hpMax: 100,
-      mp: 80, mpMax: 80,
+      hp: b.hpMax, hpMax: b.hpMax,
+      mp: b.mpMax, mpMax: b.mpMax,
       cult: 0, cultMax: 100,
       lifespan: Math.max(0, lifespanMax - d.age), lifespanMax,
-      spirit: 100, merit: 0, karma: 0,
+      spirit: b.spirit, merit: 0, karma: 0,
       mood: 1.0, injury: null, statusEffects: [],
     },
     timeline: { year: 1, month: 3, calendarYear: 387 },
     bag: {},
     gongfaIds: [],
-    techniqueLevels: {},
+    techniqueLevels: b.techniqueLevels,
     enlightenment: {},
     relationships: {},
     daoPartner: null,
@@ -133,6 +175,9 @@ export function CreationWizard() {
   }
 
   const root = d.spiritRootId ? SPIRIT_ROOTS.find((r) => r.id === d.spiritRootId) : undefined
+
+  // 确认页预览：六维分配 + 出身/天赋加成后的最终值
+  const finalStats = useMemo(() => applyBonuses(d).stats, [d])
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-8">
@@ -334,7 +379,8 @@ export function CreationWizard() {
                   {root?.elements.map((el) => <Chip key={el} text={el} color={ELEMENT_COLORS[el]} />)}
                   {' '}· 体质 {PHYSIQUES.find((p) => p.id === d.physiqueId)?.name}
                 </p>
-                <p>六维 {STAT_KEYS.map(({ key, label }) => `${label}${d.stats[key]}`).join(' ')}</p>
+                <p>六维 {STAT_KEYS.map(({ key, label }) => `${label}${finalStats[key]}`).join(' ')}</p>
+                <p className="text-muted text-xs">（已含出身与天赋加成，单项上限 20）</p>
                 <p>天赋 {d.talentIds.map((id) => TALENTS.find((t) => t.id === id)?.name).join('、') || '无'}</p>
                 <p className="text-muted text-xs mt-2">初始境界：炼气·初期 · 寿元 {LIFESPAN[REALMS[0].name]} · 灵石 100 · 天玄历 387 年 · 春</p>
               </div>

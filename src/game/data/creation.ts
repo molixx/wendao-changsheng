@@ -58,17 +58,17 @@ export const PHYSIQUES: Physique[] = [
  * 负面天赋「体弱多病」气血-50，换回 2 点（cost 记 2、negative 标记）。
  */
 export const TALENTS: Talent[] = [
-  { id: 'congming', name: '天资聪颖', desc: '资质+3', cost: 1 },
-  { id: 'guomu', name: '过目不忘', desc: '悟性+3', cost: 1 },
-  { id: 'shenqing', name: '身轻如燕', desc: '遁速+3', cost: 1 },
-  { id: 'tiansheng-daoxin', name: '天生道心', desc: '道心+3', cost: 1 },
-  { id: 'qiyun', name: '气运加身', desc: '仙缘+3', cost: 1 },
-  { id: 'shenshi', name: '神识过人', desc: '神识+3', cost: 1 },
-  { id: 'baimai', name: '百脉俱通', desc: '灵力上限+50', cost: 1 },
-  { id: 'gangjin', name: '钢筋铁骨', desc: '气血上限+80', cost: 1 },
-  { id: 'yaoli', name: '药理通神', desc: '炼丹+1 级', cost: 1 },
+  { id: 'congming', name: '天资聪颖', desc: '资质+3', cost: 1, bonus: { 资质: 3 } },
+  { id: 'guomu', name: '过目不忘', desc: '悟性+3', cost: 1, bonus: { 悟性: 3 } },
+  { id: 'shenqing', name: '身轻如燕', desc: '遁速+3', cost: 1, bonus: { 遁速: 3 } },
+  { id: 'tiansheng-daoxin', name: '天生道心', desc: '道心+3', cost: 1, bonus: { 道心: 3 } },
+  { id: 'qiyun', name: '气运加身', desc: '仙缘+3', cost: 1, bonus: { 仙缘: 3 } },
+  { id: 'shenshi', name: '神识过人', desc: '神识+3', cost: 1, bonus: { 神识: 3 } },
+  { id: 'baimai', name: '百脉俱通', desc: '灵力上限+50', cost: 1, bonus: { 灵力上限: 50 } },
+  { id: 'gangjin', name: '钢筋铁骨', desc: '气血上限+80', cost: 1, bonus: { 气血上限: 80 } },
+  { id: 'yaoli', name: '药理通神', desc: '炼丹+1 级', cost: 1, bonus: { 炼丹: 1 } },
   { id: 'taohua', name: '桃花运', desc: '初始好感+20%', cost: 1 },
-  { id: 'ti-ruo', name: '体弱多病', desc: '负面天赋：气血-50，换回 2 点', cost: 2, negative: true },
+  { id: 'ti-ruo', name: '体弱多病', desc: '负面天赋：气血-50，换回 2 点', cost: 2, negative: true, bonus: { 气血上限: -50 } },
 ]
 
 /** 道途追求（原文 6.7 六选一；主线钩子见 5.2b） */
