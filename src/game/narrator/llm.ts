@@ -357,11 +357,13 @@ export async function callNarrator(
       // 纯文本档：模型可能仍输出 JSON 形态文本 → 先尝试解析，失败再当纯文本
       const trimmed = content.trim()
       let narrative = ''
+      let summary: string | undefined
       let opts: { text: string; tag?: string }[] = []
       try {
         const parsed = parseJsonContent(trimmed) as NarratorTurn
         if (parsed && typeof parsed.narrative === 'string') {
           narrative = sanitizeNarrative(parsed.narrative)
+          summary = sanitizeSummary(parsed.summary)
           opts = sanitizeOptions(parsed.options)
         }
       } catch {
@@ -370,7 +372,7 @@ export async function callNarrator(
       if (!narrative) narrative = fallbackNarrative(trimmed)
       // 降级档无法解析结构化时间：不设置 timePassedMonths（undefined），由调用方走叙事短语推理 + 小概率兜底，
       // 绝不明文 +1（否则每回合都流逝一个月）
-      return { narrative, options: opts }
+      return { narrative, summary, options: opts }
     } catch (e) {
       if (isOfflineError(e)) throw e // 真断网：不降级，交给调用方冻结
       lastErr = e instanceof Error ? e : new Error(String(e))
