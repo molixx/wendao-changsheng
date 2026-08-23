@@ -89,13 +89,18 @@ function persistCurrentSession(state: GameState, log: LogEntry[], pendingOptions
   })
 }
 
-/** 归一化历史条目：空白叙事 → 占位、LaTeX 污染 → 清洗（防止旧档/异常数据污染 LLM 历史） */
+/** 归一化历史条目：空白叙事 → 占位、LaTeX 污染 → 清洗，并**重新分配唯一 id**
+ *  （旧版 nextId 每次刷新从 1 计数，导致旧日志 id 与新回合冲突 → React key 重复、历史弹窗渲染错乱） */
 function normalizeLog(log: LogEntry[]): LogEntry[] {
-  return log.map((e) => {
+  const seen = new Set<number>()
+  return log.map((e, i) => {
     let narr = e.narrative ?? ''
     if (hasLatexMarkup(narr)) narr = sanitizeNarrative(narr)
     if (!narr.trim()) narr = `（${e.time ?? ''}，天道静默）`
-    return { ...e, narrative: narr }
+    let id = e.id
+    if (typeof id !== 'number' || seen.has(id)) id = nextId()
+    seen.add(id)
+    return { ...e, id, narrative: narr }
   })
 }
 
