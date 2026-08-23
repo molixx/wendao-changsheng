@@ -421,6 +421,8 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
   let deltas: string[] = []
   let rawDeltas: Record<string, unknown> | undefined
   let summary: string | undefined
+  // 系统指令的代码结算叙事（如「你闭关修炼3个月，修为进益45点」）——AI 未给 summary 时的兜底简述来源
+  let codeNarrative = ''
   let engine: TurnOutput['engine'] = 'code'
   let nextState = input.state
 
@@ -428,7 +430,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
     const sys = executeSystem(cmd, input.state, input.log)
     if (sys) {
       nextState = sys.state
-      const codeNarrative = sys.narrative
+      codeNarrative = sys.narrative
       if (!useLlm) throw new Error('未配置叙事引擎：请到「叙事引擎设置」配置 API Key 后继续')
       const system = buildSystemPrompt(WORLD_BIBLE, buildWorldSnapshot(input.state) + buildStoryAnchor(input.log))
       try {
@@ -494,10 +496,16 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
 
   // 叙事兜底：任何路径都不允许空白叙事（否则会污染后续 LLM 历史）
   if (!narrative || !narrative.trim()) narrative = '天道静默不语，只是静静注视着你。'
-  // 摘要兜底：AI 未返回 summary 时用「行动 + 历时」拼简述（不截断叙事——截断首句不是简述）
+  // 摘要兜底：AI 未返回 summary 时——
+  // ① 系统指令：用代码结算叙事首句（「你闭关修炼3个月，修为进益45点」= 真实事件描述，不是玩家选项）；
+  // ② 自由行动：用「行动 + 历时」拼简述（AI 未展开时无从概括，退而求其次）
   if (!summary || !summary.trim()) {
-    const passed = timePassedMonths > 0 ? `，历时${Number(timePassedMonths.toFixed(1))}月` : ''
-    summary = `${input.action.trim().slice(0, 20)}${passed}`
+    if (codeNarrative && codeNarrative.trim()) {
+      summary = codeNarrative.replace(/\s+/g, ' ').trim().slice(0, 60)
+    } else {
+      const passed = timePassedMonths > 0 ? `，历时${Number(timePassedMonths.toFixed(1))}月` : ''
+      summary = `${input.action.trim().slice(0, 20)}${passed}`
+    }
   }
 
   // 时间推进（代码权威；战斗回合不流逝时间）。小数月（如「数日」折算的 0.3）跨回合累积在
