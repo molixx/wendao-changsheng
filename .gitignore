@@ -13,3 +13,7 @@ dist/
 # 临时脚本
 scripts/tmp-*.mjs
 scripts/dbg*.ts
+
+# 冗余与可再生文件
+public/favicon.png
+screenshots/
