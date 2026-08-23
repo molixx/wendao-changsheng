@@ -69,7 +69,8 @@ const check = (n, c, d = '') => { if (c) { pass++; console.log(`  ✅ ${n}`) } e
   body = await p.textContent('body')
   // AI 偶发失败时会正确回退代码叙事（结算标签）——叙事非空 + 标签为 天道/结算 即算通过（API 调用已单独断言）
   const lastCardText = await p.locator('main article').textContent().catch(() => '')
-  const hasNarr = (lastCardText ?? '').replace(/天道|结算|离线|「[^」]*」|入道[^「]*/g, '').trim().length > 10
+  // 只剥离"入道…「行动」"头部行与标签，正文（无论 AI 或代码模板）都应 >10 字
+  const hasNarr = (lastCardText ?? '').replace(/(^|\s)入道[^「]*「[^」]*」|天道|结算|离线/g, '').trim().length > 10
   check('修炼回合叙事渲染（天道或结算标签）', hasNarr && (body.includes('天道') || body.includes('结算')))
 
   // 3) 两次自由输入回答不同（单卡片 UI：通过历史弹窗验证两条都在）
