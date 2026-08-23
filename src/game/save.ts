@@ -4,7 +4,7 @@
 import type { GameState, SaveFile } from './state'
 import type { LogEntry } from './engine/turn'
 import type { SceneThemeKey } from '../ui/theme'
-import { isValidGameState } from './session'
+import { isValidGameState, SESSION_LOG_LIMIT } from './session'
 
 export const SAVE_SCHEMA = 'wendao-changsheng'
 export const SAVE_VERSION = 2
@@ -36,10 +36,10 @@ export function makeSaveFile(state: GameState, summary: string, extras: SaveExtr
   }
 }
 
-/** 从当前游戏状态 + 剧情流生成存档（含剧情流；log 裁剪到 50） */
+/** 从当前游戏状态 + 剧情流生成存档（含剧情流；log 裁剪到上限，与现场会话一致） */
 export function makeSaveFromState(state: GameState, summary: string, log: LogEntry[], pendingOptions: { text: string; tag?: string }[], scene?: SceneThemeKey): SaveFile {
   return makeSaveFile(state, summary, {
-    log: log.length > 50 ? log.slice(-50) : log,
+    log: log.length > SESSION_LOG_LIMIT ? log.slice(-SESSION_LOG_LIMIT) : log,
     pendingOptions,
     scene,
   })

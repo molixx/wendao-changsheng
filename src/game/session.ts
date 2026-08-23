@@ -15,8 +15,8 @@ export interface Session {
 }
 
 export const SESSION_KEY = 'wdcd.session'
-/** 剧情流保留上限（原文/设计确认：最近 50 回合） */
-export const SESSION_LOG_LIMIT = 50
+/** 剧情流保留上限（现场会话与手动存档共用；200 回合 ≈ 数百 KB，localStorage 容量内尽量多留历史） */
+export const SESSION_LOG_LIMIT = 200
 
 export function saveSession(s: Session): void {
   try {
