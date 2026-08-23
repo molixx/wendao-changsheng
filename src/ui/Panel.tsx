@@ -55,9 +55,21 @@ export function Chip({ text, color }: { text: string; color?: string }) {
   return <span className="chip" style={{ background: color ?? 'var(--theme-color)' }}>{text}</span>
 }
 
-/** 语义标签（AI 自由发挥；未知标签用中性样式） */
+/** 语义标签（AI 自由发挥；未知标签用中性样式）。
+ *  预设表按语义分组：稳妥/收获/危险/人际/修行/天机 */
 export function Tag({ text }: { text: string }) {
-  const cls: Record<string, string> = { 平和: 'pinghe', 机缘: 'jiyuan', 风险: 'fengxian', 情缘: 'qingyuan', 魔道: 'modao' }
+  const cls: Record<string, string> = {
+    // 稳妥 / 日常
+    平和: 'pinghe', 安稳: 'pinghe', 日常: 'pinghe', 修炼: 'pinghe', 养伤: 'pinghe',
+    // 收获 / 机缘
+    机缘: 'jiyuan', 收获: 'jiyuan', 发财: 'jiyuan', 天材地宝: 'jiyuan', 传承: 'jiyuan', 奇遇: 'jiyuan', 灵药: 'jiyuan', 悟道: 'jiyuan',
+    // 危险 / 凶险
+    风险: 'fengxian', 凶险: 'fengxian', 危险: 'fengxian', 杀机: 'fengxian', 危机: 'fengxian', 魔道: 'fengxian', 战斗: 'fengxian', 劫难: 'fengxian', 天罚: 'fengxian',
+    // 情缘 / 人际
+    情缘: 'qingyuan', 姻缘: 'qingyuan', 双修: 'qingyuan', 道侣: 'qingyuan', 人情: 'qingyuan', 恩仇: 'qingyuan', 背叛: 'qingyuan',
+    // 隐秘 / 天机
+    隐秘: 'yinmi', 秘密: 'yinmi', 天机: 'yinmi', 禁地: 'yinmi', 探查: 'yinmi', 偷师: 'yinmi', 夜探: 'yinmi',
+  }
   const known = cls[text]
   return known ? <span className={`tag tag--${known}`}>{text}</span> : <span className="tag" style={{ background: '#8C8578' }}>{text}</span>
 }

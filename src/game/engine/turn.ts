@@ -15,7 +15,7 @@ export interface LogEntry {
   id: number
   time: string
   narrative: string
-  options: { text: string; tag?: string }[]
+  options: { text: string; tag?: string; note?: string }[]
   scene?: SceneThemeKey
   deltas?: string[]
   /** 玩家本回合的输入（供 LLM 历史重建） */

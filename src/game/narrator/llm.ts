@@ -39,16 +39,20 @@ export function sanitizeNarrative(text: string): string {
   return t
 }
 
-/** 选项基本卫生：去空 / 去重 / 软上限 8 个（AI 自由发挥） */
-export function sanitizeOptions(list: { text?: string; tag?: string }[] | undefined): { text: string; tag?: string }[] {
+/** 选项基本卫生：去空 / 去重 / 软上限 8 个（AI 自由发挥）；保留可选备注 note */
+export function sanitizeOptions(list: { text?: string; tag?: string; note?: string }[] | undefined): { text: string; tag?: string; note?: string }[] {
   if (!list) return []
   const seen = new Set<string>()
-  const out: { text: string; tag?: string }[] = []
+  const out: { text: string; tag?: string; note?: string }[] = []
   for (const o of list) {
     const text = (o?.text ?? '').trim()
     if (!text || seen.has(text)) continue
     seen.add(text)
-    out.push({ text, tag: o.tag })
+    out.push({
+      text,
+      tag: o.tag,
+      note: typeof o.note === 'string' && o.note.trim() ? o.note.trim().slice(0, 40) : undefined,
+    })
     if (out.length >= 4) break
   }
   return out
@@ -70,7 +74,7 @@ ${worldSnapshot}
 你每回合必须且只能输出一个 JSON 对象（不要输出任何 JSON 之外的内容），格式：
 {
   "narrative": "剧情推进，篇幅不限，可充分展开情境、心理、对话与细节；必须是纯中文文字",
-  "options": [ {"text": "选项文字（长度、数量不限，3~4 个）", "tag": "可选简短语义标签，自由发挥，如 平和/机缘/风险/情缘/魔道/凶险/隐秘"} ],
+  "options": [ {"text": "选项文字（长度、数量不限，3~4 个）", "tag": "可选简短语义标签，自由发挥，如 平和/机缘/风险/情缘/魔道/凶险/隐秘", "note": "可选备注，仅在你认为玩家需要关键补充信息时添加，如 价格/成功率/风险提示；否则省略该字段"} ],
   "timePassedMonths": 0,
   "deltas": {}
 }

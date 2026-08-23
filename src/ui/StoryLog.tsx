@@ -56,7 +56,10 @@ function EntryCard({
               >
                 <span className="opt-btn">{String.fromCharCode(65 + i)}</span>
                 {opt.tag && <Tag text={opt.tag} />}
-                <span>{opt.text}</span>
+                <span className="flex-1">
+                  {opt.text}
+                  {opt.note && <span className="block text-xs text-[color:var(--ink-muted)]/80 mt-0.5">📎 {opt.note}</span>}
+                </span>
               </button>
             ) : (
               <div
@@ -65,7 +68,10 @@ function EntryCard({
               >
                 <span className="opt-btn" style={{ background: 'var(--ink-muted)' }}>{String.fromCharCode(65 + i)}</span>
                 {opt.tag && <Tag text={opt.tag} />}
-                <span>{opt.text}</span>
+                <span className="flex-1">
+                  {opt.text}
+                  {opt.note && <span className="block text-xs text-[color:var(--ink-muted)]/80 mt-0.5">📎 {opt.note}</span>}
+                </span>
               </div>
             ),
           )}
