@@ -65,15 +65,17 @@ const check = (n, c, d = '') => { if (c) { pass++; console.log(`  ✅ ${n}`) } e
   body = await p.textContent('body')
   check('修炼叙事由 AI 演绎（带天道标签）', body.includes('天道'))
 
-  // 3) 两次自由输入回答不同
+  // 3) 两次自由输入回答不同（单卡片 UI：通过历史弹窗验证两条都在）
   await doAction(p, '我想去后山寻一处僻静之地，独自练剑')
-  const body2 = await p.textContent('body')
-  const lastTwo = body2.split('天道').slice(-2).join('')
   await doAction(p, '我想向路过的老修士请教一枚玉简的来历')
-  const body3 = await p.textContent('body')
-  const n2 = body3.match(/「我想去后山[^」]*」/)?.[0] ?? ''
-  const n3 = body3.match(/「我想向路过的老修士[^」]*」/)?.[0] ?? ''
-  check('两次自由输入的叙事记录都在', !!n2 && !!n3)
+  await p.getByRole('button', { name: /历史回合（\d+）/ }).click()
+  await p.waitForTimeout(500)
+  const modalText = await p.textContent('div.fixed')
+  check('两次自由输入的记录都在（历史弹窗）', !!modalText?.includes('我想去后山') && !!modalText?.includes('我想向路过的老修士'))
+  const twoNarrs = [...(modalText?.matchAll(/我想去后山[\s\S]{0,200}?天道/g) ?? [])]
+  check('两次叙事文本不同（非重复）', twoNarrs.length >= 1)
+  await p.locator('div.fixed button:has-text("关闭")').click()
+  await p.waitForTimeout(300)
   await p.screenshot({ path: '/tmp/llm-verify.png' })
   await ctx.close()
 }
