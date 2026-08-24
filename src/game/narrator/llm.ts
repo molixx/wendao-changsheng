@@ -345,14 +345,14 @@ export async function callNarrator(
   const isDeepSeek = /deepseek\.com$/i.test(settings.baseUrl.replace(/\/+$/, ''))
   const variants: { messages: { role: string; content: string }[]; json: boolean }[] = [
     { messages: [{ role: 'system', content: system }, ...history, { role: 'user', content: userAction }], json: true },
-    // 降级重试：保留最近 12 条历史 + 仍强制 JSON（否则模型自由输出纯文本且常不带选项）
+    // 降级重试：保留最近 12 条历史；纯文本档（json:false）——JSON 档空响应后，纯文本档更容易成功拿到内容
     {
       messages: [
-        { role: 'system', content: `${system}\n\n（注：此为降级重试，仅附最近对话，请直接回应本轮，保持剧情接续。仍然必须输出 JSON 对象。）` },
+        { role: 'system', content: `${system}\n\n（注：此为降级重试，仅附最近对话，请直接回应本轮，保持剧情接续。）` },
         ...history.slice(-12),
         { role: 'user', content: userAction },
       ],
-      json: true,
+      json: false,
     },
   ]
   let lastErr: Error | null = null
