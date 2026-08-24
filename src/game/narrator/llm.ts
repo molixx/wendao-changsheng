@@ -368,14 +368,27 @@ export async function callNarrator(
     try {
       const content = await fetchContent(settings, body)
       if (v.json) {
-        const parsed = parseJsonContent(content) as NarratorTurn
-        const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
-        const narrative = sanitizeNarrative(rawNarrative) // 空叙事不兜底，交给调用方判定失败
-        return {
-          ...parsed,
-          narrative,
-          summary: sanitizeSummary(parsed.summary),
-          options: sanitizeOptions(parsed.options),
+        try {
+          const parsed = parseJsonContent(content) as NarratorTurn
+          const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
+          const narrative = sanitizeNarrative(rawNarrative) // 空叙事不兜底，交给调用方判定失败
+          return {
+            ...parsed,
+            narrative,
+            summary: sanitizeSummary(parsed.summary),
+            options: sanitizeOptions(parsed.options),
+          }
+        } catch {
+          // JSON 档却返回纯文本（response_format 失效）→ 就地解析，不降级重发：
+          // 剥掉尾部「（选项：…）」作为叙事，其余按纯文本提取选项
+          const txt = content.trim()
+          const narrative = sanitizeNarrative(txt.replace(/[（(]\s*选项\s*[：:][\s\S]*?[）)]\s*$/, '').trim())
+          return {
+            narrative,
+            summary: undefined,
+            options: extractOptionsFromText(txt),
+            timePassedMonths: undefined,
+          }
         }
       }
       // 纯文本档：模型可能仍输出 JSON 形态文本 → 先尝试解析，失败再当纯文本
