@@ -318,6 +318,23 @@ export function fallbackNarrative(text: string): string {
   return t // 空就空，不兜底「天道静默不语」——调用方会判定失败并重试
 }
 
+/** 从纯文本提取「（选项：A / B / C）」格式的选项（模型偶发不返回 JSON options 数组时兜底） */
+export function extractOptionsFromText(text: string): { text: string; tag?: string }[] {
+  if (!text) return []
+  const t = text.trim()
+  // 匹配「（选项：xxx / yyy / zzz）」或「选项：xxx / yyy」
+  const m = t.match(/[（(]\s*选项\s*[：:]\s*([\s\S]*?)[）)]/)
+  if (!m) return []
+  const raw = m[1].trim()
+  if (!raw) return []
+  // 按 / 、 ； 换行 等分隔
+  const parts = raw
+    .split(/\s*\/\s*|\s*[、;；]\s*|\s*\n+\s*/)
+    .map((s) => s.trim().replace(/^[①②③④⑤⑥⑦⑧⑨⑩\d+[.、）)]\s*/, ''))
+    .filter((s) => s.length > 0)
+  return sanitizeOptions(parts.map((text) => ({ text })))
+}
+
 /** 调用 OpenAI 兼容端点（带降级重试：完整 → 去历史纯文本；空白/业务失败自动降级） */
 export async function callNarrator(
   settings: NarratorSettings,
@@ -379,6 +396,10 @@ export async function callNarrator(
         /* 非 JSON → 走纯文本 */
       }
       if (!narrative) narrative = fallbackNarrative(trimmed)
+      // 纯文本兜底提取选项：模型偶发返回「（选项：A / B / C）」自然语言格式，而非 JSON options 数组
+      if (opts.length === 0) {
+        opts = extractOptionsFromText(trimmed)
+      }
       return { narrative, summary, options: opts, timePassedMonths: months }
     } catch (e) {
       if (isOfflineError(e)) throw e // 真断网：不降级，交给调用方冻结
