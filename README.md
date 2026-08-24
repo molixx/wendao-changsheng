@@ -129,3 +129,39 @@ npm run preview
 - **设置页**：「查询余额」按钮（在测试连接旁）——总余额 + 币种 + 可用状态 + 赠送/充值拆分，低余额（<¥10）红色预警
 - **游戏内徽标**：标题页右上角 + 主界面工具栏常驻 `¥xx.xx`，点击展开详情；每 10 分钟自动刷新（localStorage 缓存，未过期不重复请求）
 - 默认 DeepSeek 模板（`GET /user/balance`，按 baseUrl 识别）；其他服务商提示「无标准余额接口」
+
+## 安卓 / 鸿蒙移植（Capacitor）
+
+用 [Capacitor](https://capacitorjs.com/) 将本 SPA 打包为原生 App（APK）。
+
+### 已完成的改造
+
+- `vite.config.ts` 设 `base: './'`（相对路径，适配 WebView 的 `capacitor://localhost`）；
+- `Background.tsx` 背景图路径改用 `import.meta.env.BASE_URL`；
+- `capacitor.config.ts`（appId `com.wendao.changsheng`、webDir `dist`）；
+- `android/` 原生工程已生成，应用图标已用 sharp 从 SVG 生成全套 mipmap。
+
+### 构建 APK（需要 Android 环境）
+
+本机需先装 **JDK 17+ 和 Android SDK**（最简单是装 [Android Studio](https://developer.android.com/studio)，它会带齐 SDK 并配好 `ANDROID_HOME`），然后：
+
+```bash
+./scripts/build-apk.sh
+```
+
+产出 `android/app/build/outputs/apk/debug/app-debug.apk`（debug 版，免签名可直接侧载）。
+
+或在有 Android SDK 的机器上：
+
+```bash
+npm install
+npm run build
+npx cap sync android
+cd android && ./gradlew assembleDebug
+```
+
+### 说明
+
+- 数据仍存 WebView 的 localStorage，与网页版互通（同源则共享，非同源各自独立）；
+- DeepSeek API 直接在 WebView 内 `fetch`，Key 存本地；若个别机型 WebView 对 `api.deepseek.com` 有 CORS 限制，需在设置里改用代理地址。
+- 鸿蒙：Capacitor 已有鸿蒙适配，可用 `@capacitor/openharmony` 类似流程生成 HAP，本 README 先覆盖安卓。

@@ -2,24 +2,27 @@
 
 import { useGame } from '../game/store'
 
+// 资源基础路径：web 部署为 '/'、Capacitor（安卓/鸿蒙）为 './'，统一用 Vite 注入的 BASE_URL
+const B = import.meta.env.BASE_URL
+
 /** 固定屏幕背景（不含扩展名，PNG 优先 / SVG 兜底） */
 const SCREEN_BG: Partial<Record<string, string>> = {
-  title: '/bg/title',
-  create: '/bg/paper-mist',
-  settings: '/bg/paper-mist',
-  lore: '/bg/tianqing',
+  title: `${B}bg/title`,
+  create: `${B}bg/paper-mist`,
+  settings: `${B}bg/paper-mist`,
+  lore: `${B}bg/tianqing`,
 }
 
 /** 场景主题 → 背景（对应宣纸设计系统 8 主题色） */
 const SCENE_BG: Record<string, string> = {
-  qingyu: '/bg/qingyu', // 青玉 · 主界面/修炼/状态卡
-  xuanzi: '/bg/xuanzi', // 玄紫 · 突破/渡劫/天雷
-  zhusha: '/bg/zhusha', // 朱砂 · 战斗/危机
-  taofen: '/bg/taofen', // 桃粉 · 情缘/双修/道侣
-  ziqi: '/bg/ziqi', // 紫气 · 机缘/秘境/神秘
-  liujin: '/bg/liujin', // 鎏金 · 坊市/灵石/财富
-  tianqing: '/bg/tianqing', // 天青 · 宗门/正式
-  zhuqing: '/bg/zhuqing', // 竹青 · 悟道/论道
+  qingyu: `${B}bg/qingyu`, // 青玉 · 主界面/修炼/状态卡
+  xuanzi: `${B}bg/xuanzi`, // 玄紫 · 突破/渡劫/天雷
+  zhusha: `${B}bg/zhusha`, // 朱砂 · 战斗/危机
+  taofen: `${B}bg/taofen`, // 桃粉 · 情缘/双修/道侣
+  ziqi: `${B}bg/ziqi`, // 紫气 · 机缘/秘境/神秘
+  liujin: `${B}bg/liujin`, // 鎏金 · 坊市/灵石/财富
+  tianqing: `${B}bg/tianqing`, // 天青 · 宗门/正式
+  zhuqing: `${B}bg/zhuqing`, // 竹青 · 悟道/论道
 }
 
 export function Background() {
