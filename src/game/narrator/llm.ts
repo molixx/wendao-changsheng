@@ -315,7 +315,7 @@ export function fallbackNarrative(text: string): string {
   if (cut > 0) t = t.slice(0, cut)
   t = t.replace(/"?\s*[,}\]]?\s*$/, '')
   t = sanitizeNarrative(t).trim().slice(0, 1200)
-  return t || '天道静默不语。'
+  return t // 空就空，不兜底「天道静默不语」——调用方会判定失败并重试
 }
 
 /** 调用 OpenAI 兼容端点（带降级重试：完整 → 去历史纯文本；空白/业务失败自动降级） */
@@ -353,7 +353,7 @@ export async function callNarrator(
       if (v.json) {
         const parsed = parseJsonContent(content) as NarratorTurn
         const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
-        const narrative = sanitizeNarrative(rawNarrative) || '天道静默不语。'
+        const narrative = sanitizeNarrative(rawNarrative) // 空叙事不兜底，交给调用方判定失败
         return {
           ...parsed,
           narrative,

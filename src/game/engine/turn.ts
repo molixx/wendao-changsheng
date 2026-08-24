@@ -440,8 +440,11 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
     try {
       const result = await callNarrator(settings, system, input.history, llmAction)
       narrative = result.narrative
+      // 空叙事 / 空选项 = 失败，抛错重试（绝不生成占位内容，避免污染剧情推进）
+      if (!narrative || !narrative.trim()) throw new Error('叙事引擎返回空内容')
       summary = result.summary
       options = sanitizeOptions(result.options)
+      if (options.length === 0) throw new Error('叙事引擎未返回选项')
       // 场景主题由代码（系统指令）决定，忽略 AI 返回的 scene——否则 AI 乱给值导致背景在集市/洞府之间乱跳
       scene = undefined
       rawDeltas = result.deltas
@@ -452,16 +455,8 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       timePassedMonths = settleTime(result.timePassedMonths)
       engine = 'llm'
     } catch (e) {
-      // 真断网 → 冻结（抛给调用方停留+重试）；业务失败（多次重试仍空白/报错）→ 最小化续行，保证游戏可继续
-      if (isOfflineError(e)) throw e
-      narrative = `你依言而行：「${input.action}」。天道暂未细述此事（叙事引擎响应异常），天光流转，岁月如常。`
-      options = [
-        { text: '重试演绎', tag: '平和' },
-        { text: '回到主剧情', tag: '平和' },
-      ]
-      // 失败续行回合不流逝时间
-      timePassedMonths = 0
-      engine = 'code'
+      // 离线 / 业务失败 / 空内容 / 空选项：一律抛错，由调用方停留 + 重试，绝不生成替代内容
+      throw e instanceof Error ? e : new Error(String(e))
     }
   }
 
@@ -488,17 +483,6 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
   // 每个回合固定提供「回到主剧情」入口（未在选项中时追加）
   if (!options.some((o) => o.text.includes('回到主剧情'))) {
     options = [...options, { text: '回到主剧情', tag: '平和' }]
-  }
-  // 铁律：任何路径都不允许空选项（AI 未给/降级纯文本/异常 → 补通用行动组，绝不只剩「回到主剧情」）
-  if (options.length <= 1) {
-    options = [
-      ...options.filter((o) => !o.text.includes('回到主剧情')),
-      { text: '修炼', tag: '平和' },
-      { text: '外出游历', tag: '机缘' },
-      { text: '坊市', tag: '平和' },
-      { text: '查看状态', tag: '平和' },
-      { text: '回到主剧情', tag: '平和' },
-    ]
   }
   // 衰老结算：年龄/寿元随流逝月数统一更新（所有回合类型都生效），寿元耗尽 → 坐化
   const aged = applyAging(nextState, timePassedMonths)
