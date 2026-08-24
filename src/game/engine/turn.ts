@@ -6,6 +6,7 @@ import type { NarratorSettings } from '../state'
 import type { SceneThemeKey } from '../../ui/theme'
 import { callNarrator, narrateSystem, sanitizeOptions, buildSystemPrompt, isOfflineError } from '../narrator/llm'
 import { routeCommand, executeSystem, resolveOpening } from './actions'
+import { cultivate } from './cultivation'
 import { advanceTime, fmtTimeShort } from './time'
 import { itemNameOf } from './economy'
 import { WORLD_BIBLE } from '../data/worldview'
@@ -399,9 +400,17 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
         options = sanitizeOptions(narrated.options)
         if (options.length === 0) options = sys.options
         // 时间：全盘交给 AI 的 timePassedMonths；唯一例外——显式「闭关 N 月/年」由代码解析（玩家明确输入）
-        timePassedMonths = cmd.kind === 'cultivate' && typeof cmd.months === 'number'
-          ? cmd.months
-          : settleTime(narrated.timePassedMonths)
+        if (cmd.kind === 'cultivate' && typeof cmd.months === 'number') {
+          timePassedMonths = cmd.months
+        } else {
+          timePassedMonths = settleTime(narrated.timePassedMonths)
+          // 普通修炼：修为按 AI 给的时长结算（修为与时间统一，消除脱节）
+          if (cmd.kind === 'cultivate' && timePassedMonths > 0) {
+            const r = cultivate(input.state, timePassedMonths, cmd.closedDoor)
+            nextState = r.state
+            codeNarrative = r.msg
+          }
+        }
         // 系统指令数值已由代码结算；AI deltas 只采纳状态类字段（伤势/异常/心境），防止双加
         rawDeltas = narrated.deltas
         const applied = applyDeltas(nextState, narrated.deltas, 'status')
@@ -413,7 +422,8 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
         if (isOfflineError(e)) throw e
         narrative = codeNarrative
         options = sys.options
-        timePassedMonths = 0
+        // 显式闭关已按 N 月结算修为，时间同步走 N；普通修炼未结算，时间 0（与修为一致）
+        timePassedMonths = cmd.kind === 'cultivate' && typeof cmd.months === 'number' ? cmd.months : 0
         engine = 'code'
       }
       scene = sys.scene

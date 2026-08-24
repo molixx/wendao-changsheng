@@ -183,14 +183,24 @@ export function executeSystem(cmd: Command, state: GameState, storyLog?: LogEntr
     }
 
     case 'cultivate': {
-      // 数值结算按默认 1 个月计（或显式闭关时长）；时间流逝由回合管线按叙事决定（显式闭关除外）
-      const r = cultivate(state, cmd.months ?? 1, cmd.closedDoor)
       const okOpts: { text: string; tag?: string }[] = [
         { text: cmd.closedDoor ? '继续闭关' : '继续修炼', tag: '平和' },
         { text: '突破', tag: '机缘' },
         { text: '洞府', tag: '平和' },
       ]
-      return { state: r.state, narrative: r.msg, options: CMD_OPTIONS(okOpts), scene: 'qingyu', timePassedMonths: cmd.months ?? 0 }
+      if (typeof cmd.months === 'number') {
+        // 显式「闭关 N 月/年」：代码解析时长，立即结算修为（数值与时间一致）
+        const r = cultivate(state, cmd.months, cmd.closedDoor)
+        return { state: r.state, narrative: r.msg, options: CMD_OPTIONS(okOpts), scene: 'qingyu', timePassedMonths: cmd.months }
+      }
+      // 普通修炼：时长交给 AI（timePassedMonths），修为延迟到回合管线拿到 AI 时间后按该时长结算（修为与时间统一）
+      return {
+        state,
+        narrative: `（${t}）你盘膝而坐，凝神调息，准备修炼。`,
+        options: CMD_OPTIONS(okOpts),
+        scene: 'qingyu',
+        timePassedMonths: 0,
+      }
     }
 
     case 'breakthrough': {
