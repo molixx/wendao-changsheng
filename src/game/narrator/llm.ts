@@ -99,7 +99,7 @@ ${worldSnapshot}
 {
   "summary": "本回合事件简述（**必填，第一字段，先写它**！20~40 字一句话概括：发生了什么事、结果如何，如「闭关突破成功」「坊市购入聚气丹」「遭妖兽袭击重伤」。铁律：**禁止写「入道X年·X月」「天玄历X年」这类当前时间行**——时间行由前端自动显示；禁止截取 narrative 开头）",
   "narrative": "剧情推进，篇幅不限，可充分展开情境、心理、对话与细节；必须是纯中文文字",
-  "options": [ {"text": "选项文字（**必填，3~4 个，严禁省略或返回空数组**）", "tag": "可选简短语义标签，自由发挥，如 平和/机缘/风险/情缘/魔道/凶险/隐秘", "note": "可选备注，仅在你认为玩家需要关键补充信息时添加，如 价格/成功率/风险提示；否则省略该字段"} ],
+  "options": [ {"text": "选项文字（长度、数量不限，3~4 个）", "tag": "可选简短语义标签，自由发挥，如 平和/机缘/风险/情缘/魔道/凶险/隐秘", "note": "可选备注，仅在你认为玩家需要关键补充信息时添加，如 价格/成功率/风险提示；否则省略该字段"} ],
   "timePassedMonths": 0,
   "deltas": {}
 }
@@ -315,24 +315,7 @@ export function fallbackNarrative(text: string): string {
   if (cut > 0) t = t.slice(0, cut)
   t = t.replace(/"?\s*[,}\]]?\s*$/, '')
   t = sanitizeNarrative(t).trim().slice(0, 1200)
-  return t // 空就空，不兜底「天道静默不语」——调用方会判定失败并重试
-}
-
-/** 从纯文本提取「（选项：A / B / C）」格式的选项（模型偶发不返回 JSON options 数组时兜底） */
-export function extractOptionsFromText(text: string): { text: string; tag?: string }[] {
-  if (!text) return []
-  const t = text.trim()
-  // 匹配「（选项：xxx / yyy / zzz）」或「选项：xxx / yyy」
-  const m = t.match(/[（(]\s*选项\s*[：:]\s*([\s\S]*?)[）)]/)
-  if (!m) return []
-  const raw = m[1].trim()
-  if (!raw) return []
-  // 按 / 、 ； 换行 等分隔
-  const parts = raw
-    .split(/\s*\/\s*|\s*[、;；]\s*|\s*\n+\s*/)
-    .map((s) => s.trim().replace(/^[①②③④⑤⑥⑦⑧⑨⑩\d+[.、）)]\s*/, ''))
-    .filter((s) => s.length > 0)
-  return sanitizeOptions(parts.map((text) => ({ text })))
+  return t || '天道静默不语。'
 }
 
 /** 调用 OpenAI 兼容端点（带降级重试：完整 → 去历史纯文本；空白/业务失败自动降级） */
@@ -345,7 +328,7 @@ export async function callNarrator(
   const isDeepSeek = /deepseek\.com$/i.test(settings.baseUrl.replace(/\/+$/, ''))
   const variants: { messages: { role: string; content: string }[]; json: boolean }[] = [
     { messages: [{ role: 'system', content: system }, ...history, { role: 'user', content: userAction }], json: true },
-    // 降级重试：保留最近 12 条历史；纯文本档（json:false）——JSON 档空响应后，纯文本档更容易成功拿到内容
+    // 降级：去历史改为保留最近 12 条（≈6 回合），降低失忆跳变；纯文本档（模型空响应时更易成功）
     {
       messages: [
         { role: 'system', content: `${system}\n\n（注：此为降级重试，仅附最近对话，请直接回应本轮，保持剧情接续。）` },
@@ -356,75 +339,50 @@ export async function callNarrator(
     },
   ]
   let lastErr: Error | null = null
-  // 无选项静默重试：纯文本档返回后 options 为空（模型没给选项）→ 重跑一轮再返回，避免一回合就卡住
-  for (let round = 0; round < 2; round++) {
-    for (const v of variants) {
-      const body: Record<string, unknown> = {
-        model: settings.model,
-        messages: v.messages,
-        temperature: settings.temperature,
-        max_tokens: 4096,
+  for (const v of variants) {
+    const body: Record<string, unknown> = {
+      model: settings.model,
+      messages: v.messages,
+      temperature: settings.temperature,
+      max_tokens: 4096,
+    }
+    if (v.json) body.response_format = { type: 'json_object' }
+    if (isDeepSeek) body.thinking = { type: 'disabled' }
+    try {
+      const content = await fetchContent(settings, body)
+      if (v.json) {
+        const parsed = parseJsonContent(content) as NarratorTurn
+        const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
+        const narrative = sanitizeNarrative(rawNarrative) || '天道静默不语。'
+        return {
+          ...parsed,
+          narrative,
+          summary: sanitizeSummary(parsed.summary),
+          options: sanitizeOptions(parsed.options),
+        }
       }
-      if (v.json) body.response_format = { type: 'json_object' }
-      if (isDeepSeek) body.thinking = { type: 'disabled' }
+      // 纯文本档：模型可能仍输出 JSON 形态文本 → 先尝试解析，失败再当纯文本
+      const trimmed = content.trim()
+      let narrative = ''
+      let summary: string | undefined
+      let months: number | undefined
+      let opts: { text: string; tag?: string }[] = []
       try {
-        const content = await fetchContent(settings, body)
-        if (v.json) {
-          try {
-            const parsed = parseJsonContent(content) as NarratorTurn
-            const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
-            const narrative = sanitizeNarrative(rawNarrative) // 空叙事不兜底，交给调用方判定失败
-            return {
-              ...parsed,
-              narrative,
-              summary: sanitizeSummary(parsed.summary),
-              options: sanitizeOptions(parsed.options),
-            }
-          } catch {
-            // JSON 档却返回纯文本（response_format 失效）→ 就地解析，不降级重发：
-            // 剥掉尾部「（选项：…）」作为叙事，其余按纯文本提取选项
-            const txt = content.trim()
-            const narrative = sanitizeNarrative(txt.replace(/[（(]\s*选项\s*[：:][\s\S]*?[）)]\s*$/, '').trim())
-            return {
-              narrative,
-              summary: undefined,
-              options: extractOptionsFromText(txt),
-              timePassedMonths: undefined,
-            }
-          }
+        const parsed = parseJsonContent(trimmed) as NarratorTurn
+        if (parsed && typeof parsed.narrative === 'string') {
+          narrative = sanitizeNarrative(parsed.narrative)
+          summary = sanitizeSummary(parsed.summary)
+          months = typeof parsed.timePassedMonths === 'number' ? Math.max(0, Math.min(12, parsed.timePassedMonths)) : undefined
+          opts = sanitizeOptions(parsed.options)
         }
-        // 纯文本档：模型可能仍输出 JSON 形态文本 → 先尝试解析，失败再当纯文本
-        const trimmed = content.trim()
-        let narrative = ''
-        let summary: string | undefined
-        let months: number | undefined
-        let opts: { text: string; tag?: string }[] = []
-        try {
-          const parsed = parseJsonContent(trimmed) as NarratorTurn
-          if (parsed && typeof parsed.narrative === 'string') {
-            narrative = sanitizeNarrative(parsed.narrative)
-            summary = sanitizeSummary(parsed.summary)
-            months = typeof parsed.timePassedMonths === 'number' ? Math.max(0, Math.min(12, parsed.timePassedMonths)) : undefined
-            opts = sanitizeOptions(parsed.options)
-          }
-        } catch {
-          /* 非 JSON → 走纯文本 */
-        }
-        if (!narrative) narrative = fallbackNarrative(trimmed)
-        // 纯文本兜底提取选项：模型偶发返回「（选项：A / B / C）」自然语言格式，而非 JSON options 数组
-        if (opts.length === 0) {
-          opts = extractOptionsFromText(trimmed)
-        }
-        const result = { narrative, summary, options: opts, timePassedMonths: months }
-        // 拿到叙事但没选项：静默重试一轮（round 0 → 1），仍失败则返回由调用方判定
-        if (round === 0 && result.narrative && result.options.length === 0) {
-          break // 跳出 v 循环，进入 round 1
-        }
-        return result
-      } catch (e) {
-        if (isOfflineError(e)) throw e // 真断网：不降级，交给调用方冻结
-        lastErr = e instanceof Error ? e : new Error(String(e))
+      } catch {
+        /* 非 JSON → 走纯文本 */
       }
+      if (!narrative) narrative = fallbackNarrative(trimmed)
+      return { narrative, summary, options: opts, timePassedMonths: months }
+    } catch (e) {
+      if (isOfflineError(e)) throw e // 真断网：不降级，交给调用方冻结
+      lastErr = e instanceof Error ? e : new Error(String(e))
     }
   }
   throw lastErr ?? new Error('LLM 请求失败')
