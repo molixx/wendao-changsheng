@@ -318,7 +318,7 @@ export function fallbackNarrative(text: string): string {
   return t || '天道静默不语。'
 }
 
-/** 调用 OpenAI 兼容端点（带降级重试：完整 → 去历史纯文本；空白/业务失败自动降级） */
+/** 调用 OpenAI 兼容端点（强制 JSON：协议要求 AI 必须返回 JSON，绝不降级纯文本——纯文本无选项无法推进） */
 export async function callNarrator(
   settings: NarratorSettings,
   system: string,
@@ -326,16 +326,15 @@ export async function callNarrator(
   userAction: string,
 ): Promise<NarratorTurn> {
   const isDeepSeek = /deepseek\.com$/i.test(settings.baseUrl.replace(/\/+$/, ''))
-  const variants: { messages: { role: string; content: string }[]; json: boolean }[] = [
-    { messages: [{ role: 'system', content: system }, ...history, { role: 'user', content: userAction }], json: true },
-    // 降级：去历史改为保留最近 12 条（≈6 回合），降低失忆跳变；纯文本档（模型空响应时更易成功）
+  // 两条档都是 JSON：完整历史 / 最近 12 条（模型空响应或非 JSON 时换短历史重试，仍强制 JSON）
+  const variants: { messages: { role: string; content: string }[] }[] = [
+    { messages: [{ role: 'system', content: system }, ...history, { role: 'user', content: userAction }] },
     {
       messages: [
-        { role: 'system', content: `${system}\n\n（注：此为降级重试，仅附最近对话，请直接回应本轮，保持剧情接续。）` },
+        { role: 'system', content: `${system}\n\n（注：此为重试，仅附最近对话，请直接回应本轮，保持剧情接续。）` },
         ...history.slice(-12),
         { role: 'user', content: userAction },
       ],
-      json: false,
     },
   ]
   let lastErr: Error | null = null
@@ -346,40 +345,19 @@ export async function callNarrator(
       temperature: settings.temperature,
       max_tokens: 4096,
     }
-    if (v.json) body.response_format = { type: 'json_object' }
+    body.response_format = { type: 'json_object' }
     if (isDeepSeek) body.thinking = { type: 'disabled' }
     try {
       const content = await fetchContent(settings, body)
-      if (v.json) {
-        const parsed = parseJsonContent(content) as NarratorTurn
-        const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
-        const narrative = sanitizeNarrative(rawNarrative) || '天道静默不语。'
-        return {
-          ...parsed,
-          narrative,
-          summary: sanitizeSummary(parsed.summary),
-          options: sanitizeOptions(parsed.options),
-        }
+      const parsed = parseJsonContent(content) as NarratorTurn
+      const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
+      const narrative = sanitizeNarrative(rawNarrative)
+      return {
+        ...parsed,
+        narrative,
+        summary: sanitizeSummary(parsed.summary),
+        options: sanitizeOptions(parsed.options),
       }
-      // 纯文本档：模型可能仍输出 JSON 形态文本 → 先尝试解析，失败再当纯文本
-      const trimmed = content.trim()
-      let narrative = ''
-      let summary: string | undefined
-      let months: number | undefined
-      let opts: { text: string; tag?: string }[] = []
-      try {
-        const parsed = parseJsonContent(trimmed) as NarratorTurn
-        if (parsed && typeof parsed.narrative === 'string') {
-          narrative = sanitizeNarrative(parsed.narrative)
-          summary = sanitizeSummary(parsed.summary)
-          months = typeof parsed.timePassedMonths === 'number' ? Math.max(0, Math.min(12, parsed.timePassedMonths)) : undefined
-          opts = sanitizeOptions(parsed.options)
-        }
-      } catch {
-        /* 非 JSON → 走纯文本 */
-      }
-      if (!narrative) narrative = fallbackNarrative(trimmed)
-      return { narrative, summary, options: opts, timePassedMonths: months }
     } catch (e) {
       if (isOfflineError(e)) throw e // 真断网：不降级，交给调用方冻结
       lastErr = e instanceof Error ? e : new Error(String(e))
