@@ -269,11 +269,16 @@ export const useGame = create<GameStore>()(
         set({ busy: true, error: null, turnError: null })
         try {
           // 重建对话历史：玩家输入 + AI 回答成对回传，AI 才能记得自己说过什么（40 条=最近 20 回合，防止剧情断片乱跳）
-          const history = log.slice(-40).flatMap((e) => [
-            { role: 'user' as const, content: e.action ?? `（回合 ${e.time}）` },
-            // 空白叙事兜底：绝不让空内容进入 LLM 历史
-            { role: 'assistant' as const, content: (e.narrative ?? '').trim() ? e.narrative : `（回合 ${e.time}，天道静默）` },
-          ])
+          const history = log.slice(-40).flatMap((e) => {
+            const narr = (e.narrative ?? '').trim() ? e.narrative : `（回合 ${e.time}，天道静默）`
+            // assistant 消息附上选项，让模型持续看到「自己每回合都给了选项」，避免几回合后模仿纯叙事而省略 options
+            const opts = (e.options ?? []).map((o) => o.text).filter(Boolean)
+            const assistant = opts.length > 0 ? `${narr}\n（选项：${opts.join(' / ')}）` : narr
+            return [
+              { role: 'user' as const, content: e.action ?? `（回合 ${e.time}）` },
+              { role: 'assistant' as const, content: assistant },
+            ]
+          })
           history.push({ role: 'user' as const, content: input })
           const out = await resolveTurn({ state: game, action: input, history, log }, settings)
           const entry = makeLogEntry(out.state, out.narrative, out.options, out.scene, out.deltas, input, out.engine, out.timePassedMonths, out.rawDeltas, out.summary)
