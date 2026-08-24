@@ -489,6 +489,17 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
   if (!options.some((o) => o.text.includes('回到主剧情'))) {
     options = [...options, { text: '回到主剧情', tag: '平和' }]
   }
+  // 铁律：任何路径都不允许空选项（AI 未给/降级纯文本/异常 → 补通用行动组，绝不只剩「回到主剧情」）
+  if (options.length <= 1) {
+    options = [
+      ...options.filter((o) => !o.text.includes('回到主剧情')),
+      { text: '修炼', tag: '平和' },
+      { text: '外出游历', tag: '机缘' },
+      { text: '坊市', tag: '平和' },
+      { text: '查看状态', tag: '平和' },
+      { text: '回到主剧情', tag: '平和' },
+    ]
+  }
   // 衰老结算：年龄/寿元随流逝月数统一更新（所有回合类型都生效），寿元耗尽 → 坐化
   const aged = applyAging(nextState, timePassedMonths)
   const newState: GameState = {
