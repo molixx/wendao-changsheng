@@ -452,16 +452,9 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       timePassedMonths = settleTime(result.timePassedMonths)
       engine = 'llm'
     } catch (e) {
-      // 真断网 → 冻结（抛给调用方停留+重试）；业务失败（多次重试仍空白/报错）→ 最小化续行，保证游戏可继续
-      if (isOfflineError(e)) throw e
-      narrative = `你依言而行：「${input.action}」。天道暂未细述此事（叙事引擎响应异常），天光流转，岁月如常。`
-      options = [
-        { text: '重试演绎', tag: '平和' },
-        { text: '回到主剧情', tag: '平和' },
-      ]
-      // 失败续行回合不流逝时间
-      timePassedMonths = 0
-      engine = 'code'
+      // 必须返回 JSON：自由行动任何失败（离线/空内容/纯文本/无选项）一律抛错，由调用方停留+重试，
+      // 绝不生成占位叙事「天道暂未细述」凑合续行——那是兼容 AI 纯文本的妥协
+      throw e instanceof Error ? e : new Error(String(e))
     }
   }
 
