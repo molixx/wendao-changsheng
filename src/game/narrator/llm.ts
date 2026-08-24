@@ -328,8 +328,15 @@ export async function callNarrator(
   const isDeepSeek = /deepseek\.com$/i.test(settings.baseUrl.replace(/\/+$/, ''))
   const variants: { messages: { role: string; content: string }[]; json: boolean }[] = [
     { messages: [{ role: 'system', content: system }, ...history, { role: 'user', content: userAction }], json: true },
-    // 降级：去掉历史（可能触发模型空白）+ 纯文本
-    { messages: [{ role: 'system', content: `${system}\n\n（注：此前对话暂缺，请直接回应本轮。）` }, { role: 'user', content: userAction }], json: false },
+    // 降级：去历史改为保留最近 12 条（≈6 回合），降低失忆跳变；纯文本档（模型空响应时更易成功）
+    {
+      messages: [
+        { role: 'system', content: `${system}\n\n（注：此为降级重试，仅附最近对话，请直接回应本轮，保持剧情接续。）` },
+        ...history.slice(-12),
+        { role: 'user', content: userAction },
+      ],
+      json: false,
+    },
   ]
   let lastErr: Error | null = null
   for (const v of variants) {

@@ -93,11 +93,11 @@ export function buildWorldSnapshot(state: GameState): string {
   ].join('\n')
 }
 
-/** 剧情锚点：取最近一回合叙事结尾（截 400 字）注入 system，让 AI 严格接续——保持地点/人物/剧情线一致，
+/** 剧情锚点：取最近一回合叙事结尾（截 800 字）注入 system，让 AI 严格接续——保持地点/人物/剧情线一致，
  *  防止「上一回合在坊市、下一回合又写你在洞府」之类的剧情跳跃 */
 export function buildStoryAnchor(log?: LogEntry[]): string {
   const last = log?.[log.length - 1]
-  const narr = (last?.narrative ?? '').trim().slice(-400)
+  const narr = (last?.narrative ?? '').trim().slice(-800)
   if (!narr) return ''
   return `\n\n【上一回合剧情结尾——必须严格接续：保持所在场所、在场人物与进行中的事件完全一致；不得无端更换场景、穿越地点或另起一条剧情线】\n${narr}`
 }
