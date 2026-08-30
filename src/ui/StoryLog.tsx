@@ -51,6 +51,32 @@ function EntryCard({
           【AI 建议】{Object.entries(entry.aiDeltas).map(([k, v]) => `${k}:${JSON.stringify(v)}`).join(' · ')}
         </p>
       )}
+      {entry.rejectedStateChanges && Object.keys(entry.rejectedStateChanges).length > 0 && (
+        <p className="cmdline mt-1 text-[color:#B25A4E] opacity-80">
+          【AI 提案被过滤】{Object.entries(entry.rejectedStateChanges).map(([k, v]) => {
+            const readable: Record<string, string> = {
+              location: '地点变更',
+              mainQuest: '主线推进',
+              injury: '伤势状态',
+              status: '异常状态',
+              mood: '心境变化',
+              affinity: '好感变化',
+              bag: '背包变化',
+              stats: '六维变化',
+              enlightenment: '悟道变化',
+              technique: '技艺变化',
+            }
+            // v may be { proposed, reason } or a plain value
+            if (v && typeof v === 'object' && 'reason' in v) {
+              const vp: any = v as any
+              const propStr = vp.proposed !== undefined ? ` 建议：${JSON.stringify(vp.proposed)}` : ''
+              return `${readable[k] ?? k}: ${vp.reason}${propStr}`
+            }
+            const text = typeof v === 'string' ? v : JSON.stringify(v)
+            return `${readable[k] ?? k}: ${text}`
+          }).join(' · ')}
+        </p>
+      )}
       {entry.options && entry.options.length > 0 && (
         <div className="mt-3 flex flex-col gap-2">
           {(entry.options ?? []).map((opt, i) =>

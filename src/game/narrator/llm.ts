@@ -10,12 +10,16 @@ export interface NarratorTurn {
   summary?: string
   /** 选项（数量/长度不限，AI 按情境生成） */
   options: { text: string; tag?: string; note?: string }[]
+  /** 这回合剧情的核心意图：AI 负责“想做什么”，代码负责“是否允许落地” */
+  intent?: string
+  /** AI 对当前世界状态的建议变更（仅为提案，前端按规则校验后再执行） */
+  proposedStateChanges?: Record<string, unknown>
   /** 本回合推进月数（默认 1；闭关等可大于 1） */
   timePassedMonths?: number
   /** 场景主题（qingyu/xuanzi/zhusha/taofen/ziqi/liujin/tianqing/zhuqing） */
   scene?: string
-  /** 可选数值变化建议（仅参考，前端按世界规则校验后决定是否采纳） */
-  deltas?: Record<string, number>
+  /** 兼容旧协议：仍可接收 deltas，但优先以 proposedStateChanges 为准 */
+  deltas?: Record<string, unknown>
 }
 
 /** 剥离 Markdown 代码块围栏（DeepSeek 常用 ```json ... ``` 包裹 JSON，直接 parse 必失败）后解析 JSON */
@@ -88,6 +92,42 @@ export function sanitizeSummary(s: unknown): string | undefined {
 }
 
 /** 组装 system 提示：世界观 + 压缩世界快照 + 输出协议 */
+export function normalizeNarratorTurn(raw: unknown): NarratorTurn {
+  const parsed = typeof raw === 'object' && raw ? (raw as Partial<NarratorTurn>) : {}
+  const narrative = sanitizeNarrative(typeof parsed.narrative === 'string' ? parsed.narrative : '')
+  const summary = sanitizeSummary(parsed.summary)
+  const options = sanitizeOptions(Array.isArray(parsed.options) ? parsed.options : [])
+  const months = typeof parsed.timePassedMonths === 'number' && Number.isFinite(parsed.timePassedMonths)
+    ? Math.max(0, Math.min(12, parsed.timePassedMonths))
+    : 0
+  const proposed = parsed.proposedStateChanges && typeof parsed.proposedStateChanges === 'object'
+    ? parsed.proposedStateChanges as Record<string, unknown>
+    : undefined
+  const legacyDeltas = parsed.deltas && typeof parsed.deltas === 'object'
+    ? parsed.deltas as Record<string, unknown>
+    : undefined
+
+  if (!narrative.trim()) {
+    throw new Error('AI 返回空叙事内容')
+  }
+  if (options.length === 0) {
+    throw new Error('AI 返回空选项列表')
+  }
+  if (typeof summary === 'string' && summary.trim().length > 0 && /^(入道|天玄历)/.test(summary.trim())) {
+    throw new Error('AI 摘要含时间行，需由前端自动显示')
+  }
+
+  return {
+    narrative,
+    summary,
+    options,
+    intent: typeof parsed.intent === 'string' && parsed.intent.trim() ? parsed.intent.trim().slice(0, 80) : undefined,
+    proposedStateChanges: proposed,
+    timePassedMonths: months,
+    deltas: legacyDeltas ?? proposed,
+  }
+}
+
 export function buildSystemPrompt(worldBible: string, worldSnapshot: string): string {
   return `${worldBible}
 
@@ -97,29 +137,49 @@ ${worldSnapshot}
 【输出协议】
 你每回合必须且只能输出一个 JSON 对象（不要输出任何 JSON 之外的内容），格式：
 {
-  "summary": "本回合事件简述（**必填，第一字段，先写它**！20~40 字一句话概括：发生了什么事、结果如何，如「闭关突破成功」「坊市购入聚气丹」「遭妖兽袭击重伤」。铁律：**禁止写「入道X年·X月」「天玄历X年」这类当前时间行**——时间行由前端自动显示；禁止截取 narrative 开头）",
-  "narrative": "剧情推进，篇幅不限，可充分展开情境、心理、对话与细节；必须是纯中文文字",
-  "options": [ {"text": "选项文字（长度、数量不限，3~4 个）", "tag": "可选简短语义标签，自由发挥，如 平和/机缘/风险/情缘/魔道/凶险/隐秘", "note": "可选备注，仅在你认为玩家需要关键补充信息时添加，如 价格/成功率/风险提示；否则省略该字段"} ],
-  "timePassedMonths": 0,
-  "deltas": {}
+"summary": "本回合事件简述（**必填，第一字段，先写它**！20~40 字一句话概括：发生了什么事、结果如何，如「闭关突破成功」「坊市购入聚气丹」「遭妖兽袭击重伤」。铁律：**禁止写「入道X年·X月」「天玄历X年」这类当前时间行**——时间行由前端自动显示；禁止截取 narrative 开头）",
+"narrative": "剧情推进，篇幅不限，可充分展开情境、心理、对话与细节；必须是纯中文文字",
+"intent": "一句话说明这回合剧情的真实意图，如“在坊市与旧识谈判，试图获取秘境线索”",
+"options": [ {"text": "选项文字（长度、数量不限，3~4 个）", "tag": "可选简短语义标签，自由发挥，如 平和/机缘/风险/情缘/魔道/凶险/隐秘", "note": "可选备注，仅在你认为玩家需要关键补充信息时添加，如 价格/成功率/风险提示；否则省略该字段"} ],
+"timePassedMonths": 0,
+"proposedStateChanges": {
+  "location": "南疆·赤炎",
+  "mainQuest": "追寻上古洞府的线索",
+  "affinity": { "顾清玄": 5 },
+  "status": ["中毒"]
 }
+}
+
+【强制分工：AI 负责剧情意图，不直接写事实】
+1. 当前世界快照中的主线、位置和状态是事实来源；AI 的 narrative 只能解释这些事实，不得无端改写它们。
+2. AI 只能输出“剧情意图 + 建议变更提案”，不能直接当作事实落地；真实状态更新必须由前端代码在校验后执行。
+3. 你只能在当前世界快照和上一回合剧情锚点内续写，不要无端换地点、换人、换主线。当前所在地、正在进行的事件、在场人物必须保持一致。
+4. 若当前世界快照中显示“所在地：X”，则 narrative 中只能在 X 及其附近延伸，不得突然写“到了 Y”“回到 Y”或“转移到 Y”，除非玩家显式执行了移动类行动。
+5. 若当前世界快照中显示玩家伤势/异常/状态，narrative 不能与之矛盾；例如重伤不能写成“精力充沛地奔跑数里”。
+6. 选项必须贴合当前状态：修为将满时有突破选项、有伤时优先疗伤/休息、灵石足够时可考虑坊市；不要给出与状态矛盾的行动。
+7. 不得编造无来源的NPC、秘境、门派、过去事件；只在当前快照和锚点中出现过的事物上扩写。
+8. 只推进 1 个事件节点；不要同时写“修炼+探险+谈判+战斗”四件事混在一回合内。
+9. narrative 禁止输出任何 LaTeX / Markdown / HTML 标记（\fcolorbox、\textcolor、\colorbox、\begin{array}、\(...\)、#FFFFFF、代码块、加粗星号等一律禁止），界面由前端渲染，你只负责纯文字叙事。
+
+【时间规则】
 timePassedMonths（0~12，**必填数字，时间的唯一来源**）：你返回多少，游戏时间就推进多少；返回 0 表示本回合不流逝。**铁律：只要 narrative 中描述了任何时间流逝（赶路、闭关、疗伤、等待、修炼、赶集、养伤、云游…），timePassedMonths 就必须返回对应的正数，严禁叙事写了时间却返回 0 或漏掉该字段**。参照：瞬时事件（说话/闲逛/思索）→ 0；数日 → 0.3；半月 → 0.5；一月 → 1；数月 → 2~6；半年 → 6；一年 → 12。
 （场景主题由前端按系统指令自动管理，你无需输出 scene 字段。）
-选项必须贴合【当前世界状态快照】：结合玩家当前境界/修为/伤势/背包/灵石/冷却/关系等实际情况给出针对性建议（如修为将满时提示突破、有伤提示疗伤、灵石充足提示坊市、冷却中不提示突破），并在叙事中自然衔接当前状态，不要给出与状态矛盾的选项（如垂死时让玩家去探险）。
-deltas 规则（可选，影响玩家状态卡）：前端会校验并钳制到合法范围：
-- 数值：hp(气血)/mp(灵力)/cult(修为)/spirit(灵石)/merit(功德)/karma(业力)/lifespan(寿元)。**增量请写字符串带 + 号（如 "hp": "+20" 表示气血+20）；写负数为减；裸数字会被当作绝对值（直接设为该值）**
-- stats（六维）：{"stats": {"悟性": 1, "道心": -1}}，范围 1~20
-- affinity（好感）：{"affinity": {"顾清玄": 5}}，范围 0~100，NPC 用名字
-- bag（物品）：{"bag": {"聚气丹": 1, "灵药": -1}}，正加负减，不能为负
-- injury（伤势）：{"injury": "轻伤"} 或 {"injury": null} 清除
-- status（附加异常）：{"status": ["中毒", "心魔缠身"]}，[] 清除
-- mood（心境）：{"mood": 1.2}（0.5/1.0/1.2）
-- enlightenment（悟道）：{"enlightenment": {"剑道": 1}}，1~9
-- technique（技艺）：{"technique": {"炼丹": 1}}，1~5
-- location（所在地）：{"location": "南疆·赤炎"}——玩家移动后必须同步（五洲名/宗门/秘境名，中文）
-- mainQuest（主线）：{"mainQuest": "追寻上古洞府的线索"}——主线推进时更新（空字符串清除）
-境界突破、宗门、修炼成长等重大系统变化请引导玩家使用对应指令，不要通过 deltas 声称。
-铁律：narrative 禁止输出任何 LaTeX / Markdown / HTML 标记（\fcolorbox、\textcolor、\colorbox、\begin{array}、\(...\)、#FFFFFF、代码块、加粗星号等一律禁止），界面由前端渲染，你只负责纯文字叙事；只推进 1 个事件节点；不替玩家决定重大事件（只以选项呈现）；玩家可自由输入任意行动，你必须在世界逻辑内响应；真实修仙界会死、不暗中放水；剧情必须与上一回合结尾无缝衔接——保持所在场所、在场人物、进行中的事件完全一致，不得无端更换场景或另起剧情线（只有玩家行动明确导致场景变化时才变化）。`
+
+【状态提案规则】
+proposedStateChanges 仅代表“剧情想推进的状态意图”，并非直接落地的事实；前端代码会做合法性校验、截断与拒绝：
+- location：{"location": "南疆·赤炎"}，仅在玩家明确移动/流转时建议
+- mainQuest：{"mainQuest": "追寻上古洞府的线索"}，仅在确有主线推进时建议
+- affinity：{"affinity": {"顾清玄": 5}}，推荐范围 0~100
+- bag：{"bag": {"聚气丹": 1, "灵药": -1}}，正加负减，不能为负
+- injury：{"injury": "轻伤"} 或 {"injury": null} 清除
+- status：{"status": ["中毒", "心魔缠身"]}，[] 清除
+- mood：{"mood": 1.2}（0.5/1.0/1.2）
+- enlightenment：{"enlightenment": {"剑道": 1}}，1~9
+- technique：{"technique": {"炼丹": 1}}，1~5
+- stats：{"stats": {"悟性": 1, "道心": -1}}，范围 1~20
+- 重大系统变化（境界突破、宗门、修炼成长等）请引导玩家使用对应指令，不要通过状态提案直接声称。
+
+铁律：narrative 禁止输出任何 LaTeX / Markdown / HTML 标记（\fcolorbox、\textcolor、\colorbox、\begin{array}、\(...\)、#FFFFFF、代码块、加粗星号等一律禁止），界面由前端渲染，你只负责纯文字叙事；玩家可自由输入任意行动，你必须在世界逻辑内响应；真实修仙界会死、不暗中放水；剧情必须与上一回合结尾无缝衔接——保持所在场所、在场人物、进行中的事件完全一致，不得无端更换场景或另起剧情线（只有玩家行动明确导致场景变化时才变化）。`
 }
 
 /** 连接测试结果 */
@@ -254,17 +314,8 @@ export async function narrateSystem(
   if (isDeepSeek) body.thinking = { type: 'disabled' }
   const content = await fetchContent(settings, body)
   try {
-    const parsed = parseJsonContent(content) as NarratorTurn
-    const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
-    const narrative = sanitizeNarrative(rawNarrative)
-    const months = typeof parsed.timePassedMonths === 'number' ? Math.max(0, Math.min(12, parsed.timePassedMonths)) : undefined
-    return {
-      narrative,
-      summary: sanitizeSummary(parsed.summary),
-      options: sanitizeOptions(parsed.options),
-      timePassedMonths: months,
-      deltas: parsed.deltas,
-    }
+    const parsed = normalizeNarratorTurn(parseJsonContent(content))
+    return parsed
   } catch {
     // 内容非 JSON：若可读则当纯文本叙事（系统指令侧由调用方回退模板叙事）
     return { narrative: content.trim() ? sanitizeNarrative(content).slice(0, 1200) : '', options: [] }
@@ -295,14 +346,13 @@ export async function narrateOpening(
   }
   if (isDeepSeek) body.thinking = { type: 'disabled' }
   const content = await fetchContent(settings, body)
-  const parsed = parseJsonContent(content) as NarratorTurn
-  const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
-  const narrative = sanitizeNarrative(rawNarrative)
-  if (!narrative) throw new Error('开局演绎返回空')
+  const parsed = normalizeNarratorTurn(parseJsonContent(content))
   return {
-    narrative,
-    summary: sanitizeSummary(parsed.summary),
-    options: sanitizeOptions(parsed.options),
+    narrative: parsed.narrative,
+    summary: parsed.summary,
+    options: parsed.options,
+    timePassedMonths: parsed.timePassedMonths,
+    deltas: parsed.deltas,
   }
 }
 
@@ -328,11 +378,13 @@ export async function callNarrator(
   const isDeepSeek = /deepseek\.com$/i.test(settings.baseUrl.replace(/\/+$/, ''))
   // 两条档都是 JSON：完整历史 / 最近 12 条（模型空响应或非 JSON 时换短历史重试，仍强制 JSON）
   const variants: { messages: { role: string; content: string }[] }[] = [
-    { messages: [{ role: 'system', content: system }, ...history, { role: 'user', content: userAction }] },
+    // 优先附带最近 3 个完整对话（user+assistant 各 3 条）以保证上下文完整性
+    { messages: [{ role: 'system', content: system }, ...history.slice(-6), { role: 'user', content: userAction }] },
+    // 回退策略：附最近 12 个回合（最多 24 条 user/assistant 对）作为重试上下文
     {
       messages: [
         { role: 'system', content: `${system}\n\n（注：此为重试，仅附最近对话，请直接回应本轮，保持剧情接续。）` },
-        ...history.slice(-12),
+        ...history.slice(-24),
         { role: 'user', content: userAction },
       ],
     },
@@ -349,15 +401,8 @@ export async function callNarrator(
     if (isDeepSeek) body.thinking = { type: 'disabled' }
     try {
       const content = await fetchContent(settings, body)
-      const parsed = parseJsonContent(content) as NarratorTurn
-      const rawNarrative = typeof parsed.narrative === 'string' ? parsed.narrative : ''
-      const narrative = sanitizeNarrative(rawNarrative)
-      return {
-        ...parsed,
-        narrative,
-        summary: sanitizeSummary(parsed.summary),
-        options: sanitizeOptions(parsed.options),
-      }
+      const parsed = normalizeNarratorTurn(parseJsonContent(content))
+      return parsed
     } catch (e) {
       if (isOfflineError(e)) throw e // 真断网：不降级，交给调用方冻结
       lastErr = e instanceof Error ? e : new Error(String(e))

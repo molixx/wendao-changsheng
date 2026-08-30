@@ -28,6 +28,8 @@ export interface LogEntry {
   passedMonths?: number
   /** AI 原始建议的 deltas（展示用：本回合 AI 建议改什么，便于核对采纳/忽略） */
   aiDeltas?: Record<string, unknown>
+  /** AI 提案被规则过滤掉的状态变更（展示给玩家说明哪些提议没落地） */
+  rejectedStateChanges?: Record<string, unknown>
   /** 本回合事件摘要（AI 返回或叙事首句兜底；历史浏览用） */
   summary?: string
 }
@@ -50,6 +52,8 @@ export interface TurnOutput {
   deltas?: string[]
   /** AI 原始建议的 deltas（展示用：让玩家看到 AI 建议了什么、哪些未被采纳） */
   rawDeltas?: Record<string, unknown>
+  /** AI 提案被规则过滤掉的状态变更 */
+  rejectedStateChanges?: Record<string, unknown>
   timePassedMonths: number
   engine: 'llm' | 'code' | 'offline'
 }
@@ -97,7 +101,7 @@ export function buildWorldSnapshot(state: GameState): string {
  *  防止「上一回合在坊市、下一回合又写你在洞府」之类的剧情跳跃 */
 export function buildStoryAnchor(log?: LogEntry[]): string {
   const last = log?.[log.length - 1]
-  const narr = (last?.narrative ?? '').trim().slice(-800)
+  const narr = (last?.narrative ?? '').trim().slice(-300)
   if (!narr) return ''
   return `\n\n【上一回合剧情结尾——必须严格接续：保持所在场所、在场人物与进行中的事件完全一致；不得无端更换场景、穿越地点或另起一条剧情线】\n${narr}`
 }
@@ -123,6 +127,168 @@ function toNumber(v: unknown): number | null {
     if (Number.isFinite(n)) return n
   }
   return null
+}
+
+/** 语义级校验：AI 的状态提案只有在符合当前行动语境时才允许落地。
+ *  这样 AI 仍能“推动剧情意图”，但不能无条件直接改写世界事实。 */
+export function validateProposedStateChanges(
+  state: GameState,
+  proposed: Record<string, unknown> | undefined,
+  action: string,
+): { accepted?: Record<string, unknown>; rejected?: Record<string, { proposed: unknown; reason: string }> } {
+  // 返回 { accepted, rejected }：accepted 为可采纳的字段映射，rejected 为不可采纳字段及中文短原因
+  if (!proposed || typeof proposed !== 'object') return {}
+  const accepted: Record<string, unknown> = {}
+  const rejected: Record<string, { proposed: unknown; reason: string }> = {}
+  const actionText = (action ?? '').trim()
+  const travelLike = /(去|前往|游历|云游|赶路|出发|寻访|拜访|探访|追踪|寻找|调查|回到|回去)/.test(actionText)
+  const currentLocation = state.flags.location ?? '东洲·青岳'
+  const statusList = Array.isArray(state.res.statusEffects) ? state.res.statusEffects : []
+
+  // 模块化检查：location
+  if ('location' in proposed) {
+    const val = String(proposed.location ?? '').trim()
+    if (!val) {
+      rejected.location = { proposed: proposed.location, reason: '地点为空' }
+    } else if (val.length > 20) {
+      rejected.location = { proposed: proposed.location, reason: '地点名称过长' }
+    } else if (val === currentLocation) {
+      // 与当前一致，接受为冗余（但不必要应用）
+      accepted.location = val
+    } else if (travelLike) {
+      accepted.location = val
+    } else {
+      rejected.location = { proposed: proposed.location, reason: '未经移动指令，不能改变所在地' }
+    }
+  }
+
+  // mainQuest
+  if ('mainQuest' in proposed) {
+    const val = String(proposed.mainQuest ?? '').trim()
+    if (!val) {
+      rejected.mainQuest = { proposed: proposed.mainQuest, reason: '主线内容为空' }
+    } else if (val.length > 40) {
+      rejected.mainQuest = { proposed: proposed.mainQuest, reason: '主线描述过长' }
+    } else {
+      const isQuestLike = /(找|寻|追|调查|探|访|问|找寻|寻找|追查|追寻|寻访)/.test(actionText)
+      if (!state.mainQuest || val !== state.mainQuest || isQuestLike) accepted.mainQuest = val
+      else rejected.mainQuest = { proposed: proposed.mainQuest, reason: '主线无变化或未体现任务相关行动' }
+    }
+  }
+
+  // injury
+  if ('injury' in proposed) {
+    const val = proposed.injury
+    if (val === null || val === undefined || val === '无' || val === 'none' || String(val).trim() === '') {
+      accepted.injury = null
+    } else {
+      const text = String(val).trim().slice(0, 20)
+      const hit = INJURIES.find((i) => i.id === text || i.name === text || i.name.split('/').includes(text))
+      if (hit) accepted.injury = hit.id
+      else accepted.injury = text
+    }
+  }
+
+  // status
+  if ('status' in proposed) {
+    const raw = proposed.status
+    const list = Array.isArray(raw) ? raw : typeof raw === 'string' && raw.trim() ? [raw] : null
+    if (list) {
+      const next = list.map((x) => String(x).slice(0, 12)).filter(Boolean)
+      if (next.length > 0 || (Array.isArray(raw) && raw.length === 0)) accepted.status = next
+      else rejected.status = { proposed: raw, reason: '异常状态格式不被识别' }
+    } else {
+      rejected.status = { proposed: raw, reason: '异常状态需为字符串或数组' }
+    }
+  }
+
+  // mood
+  if ('mood' in proposed) {
+    const v = toNumber(proposed.mood)
+    if (v === null) rejected.mood = { proposed: proposed.mood, reason: '心境需为数字' }
+    else {
+      const normalized = v >= 1.1 ? 1.2 : v <= 0.7 ? 0.5 : 1.0
+      accepted.mood = normalized
+    }
+  }
+
+  // affinity
+  if ('affinity' in proposed && proposed.affinity && typeof proposed.affinity === 'object') {
+    const nextAff: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(proposed.affinity as Record<string, unknown>)) {
+      const n = toNumber(v)
+      if (n === null) {
+        rejected[`affinity.${k}`] = { proposed: v, reason: '好感值需为数字' }
+        continue
+      }
+      nextAff[k] = Math.max(0, Math.min(100, Math.round(n)))
+    }
+    if (Object.keys(nextAff).length > 0) accepted.affinity = nextAff
+  }
+
+  // bag
+  if ('bag' in proposed && proposed.bag && typeof proposed.bag === 'object') {
+    const nextBag: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(proposed.bag as Record<string, unknown>)) {
+      const n = toNumber(v)
+      if (n === null) {
+        rejected[`bag.${k}`] = { proposed: v, reason: '物品数量需为数字' }
+        continue
+      }
+      nextBag[k] = Math.max(0, Math.round(n))
+    }
+    if (Object.keys(nextBag).length > 0) accepted.bag = nextBag
+  }
+
+  // stats
+  if ('stats' in proposed && proposed.stats && typeof proposed.stats === 'object') {
+    const nextStats: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(proposed.stats as Record<string, unknown>)) {
+      const n = toNumber(v)
+      if (n === null) {
+        rejected[`stats.${k}`] = { proposed: v, reason: '属性值需为数字' }
+        continue
+      }
+      nextStats[k] = Math.max(1, Math.min(20, Math.round(n)))
+    }
+    if (Object.keys(nextStats).length > 0) accepted.stats = nextStats
+  }
+
+  // enlightenment
+  if ('enlightenment' in proposed && proposed.enlightenment && typeof proposed.enlightenment === 'object') {
+    const nextEnl: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(proposed.enlightenment as Record<string, unknown>)) {
+      const n = toNumber(v)
+      if (n === null) {
+        rejected[`enlightenment.${k}`] = { proposed: v, reason: '悟道值需为数字' }
+        continue
+      }
+      nextEnl[k] = Math.max(1, Math.min(9, Math.round(n)))
+    }
+    if (Object.keys(nextEnl).length > 0) accepted.enlightenment = nextEnl
+  }
+
+  // technique
+  if ('technique' in proposed && proposed.technique && typeof proposed.technique === 'object') {
+    const nextTech: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(proposed.technique as Record<string, unknown>)) {
+      const n = toNumber(v)
+      if (n === null) {
+        rejected[`technique.${k}`] = { proposed: v, reason: '技艺值需为数字' }
+        continue
+      }
+      nextTech[k] = Math.max(1, Math.min(5, Math.round(n)))
+    }
+    if (Object.keys(nextTech).length > 0) accepted.technique = nextTech
+  }
+
+  // statusList interference: if player already has statuses and proposed.status isn't array/string, reject
+  if (statusList.length > 0 && 'status' in proposed && !Array.isArray(proposed.status) && typeof proposed.status !== 'string') {
+    delete accepted.status
+    rejected.status = { proposed: proposed.status, reason: '当前存在异常，新的异常格式需为数组或字符串' }
+  }
+
+  return { accepted: Object.keys(accepted).length ? accepted : undefined, rejected: Object.keys(rejected).length ? rejected : undefined }
 }
 
 /** 校验并应用 LLM 的数值变更：字段别名映射、增量/绝对值双语义、钳制、上限封顶、不为负
@@ -380,6 +546,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
   let timePassedMonths = 0
   let deltas: string[] = []
   let rawDeltas: Record<string, unknown> | undefined
+  let rejectedStateChanges: Record<string, unknown> | undefined
   let summary: string | undefined
   // 系统指令的代码结算叙事（如「你闭关修炼3个月，修为进益45点」）——AI 未给 summary 时的兜底简述来源
   let codeNarrative = ''
@@ -411,9 +578,13 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
             codeNarrative = r.msg
           }
         }
-        // 系统指令数值已由代码结算；AI deltas 只采纳状态类字段（伤势/异常/心境），防止双加
-        rawDeltas = narrated.deltas
-        const applied = applyDeltas(nextState, narrated.deltas, 'status')
+        // 系统指令数值已由代码结算；AI 的提案只做状态类字段，确保“剧情意图”不直接越权改世界事实
+        const proposed = narrated.proposedStateChanges ?? narrated.deltas
+        const { accepted, rejected } = validateProposedStateChanges(nextState, proposed, input.action)
+        rawDeltas = accepted ?? undefined
+        // rejectedStateChanges 存为 { key: { proposed, reason } }
+        rejectedStateChanges = rejected ?? (proposed && !accepted ? Object.fromEntries(Object.entries(proposed).map(([k, v]) => [k, { proposed: v, reason: '未通过规则校验' }])) : undefined)
+        const applied = applyDeltas(nextState, rawDeltas, 'status')
         nextState = applied.state
         deltas = applied.applied
         engine = 'llm'
@@ -444,8 +615,11 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
       options = sanitizeOptions(result.options)
       // 场景主题由代码（系统指令）决定，忽略 AI 返回的 scene——否则 AI 乱给值导致背景在集市/洞府之间乱跳
       scene = undefined
-      rawDeltas = result.deltas
-      const applied = applyDeltas(nextState, result.deltas)
+      const proposed = result.proposedStateChanges ?? result.deltas
+      const { accepted, rejected } = validateProposedStateChanges(nextState, proposed, input.action)
+      rawDeltas = accepted ?? undefined
+      rejectedStateChanges = rejected ?? (proposed && !accepted ? Object.fromEntries(Object.entries(proposed).map(([k, v]) => [k, { proposed: v, reason: '未通过规则校验' }])) : undefined)
+      const applied = applyDeltas(nextState, rawDeltas)
       nextState = applied.state
       deltas = applied.applied
       // 时间：全盘交给 AI 的 timePassedMonths（返回多少推进多少，未返回/0 → 不流逝）
@@ -504,6 +678,7 @@ export async function resolveTurn(input: TurnInput, settings: NarratorSettings):
     scene,
     deltas,
     rawDeltas,
+    rejectedStateChanges,
     timePassedMonths,
     engine,
   }
