@@ -256,10 +256,26 @@ async function fetchContent(settings: NarratorSettings, body: Record<string, unk
       })
       clearTimeout(timer)
       if (!res.ok) throw new Error(`HTTP ${res.status}：${(await res.text()).slice(0, 200)}`)
-      const data = (await res.json()) as { choices?: { message?: { content?: string } }[] }
+      const data = (await res.json()) as { choices?: { message?: { content?: string; reasoning_content?: string }; finish_reason?: string }[] }
       const content = data.choices?.[0]?.message?.content ?? ''
       if (content.trim()) return content
-      lastErr = new Error('LLM 返回为空内容')
+      // 空内容诊断：记录 finish_reason / reasoning_content / choices 数量（不含密钥），供排障
+      const reason = data.choices?.[0]?.finish_reason ?? 'unknown'
+      const hasReasoning = !!data.choices?.[0]?.message?.reasoning_content
+      lastErr = new Error(`LLM 返回为空内容（finish_reason=${reason}${hasReasoning ? '，答案在 reasoning_content 而 content 为空' : ''}，choices=${data.choices?.length ?? 0}）`)
+      console.error('[LLM] 空内容响应诊断', {
+        finish_reason: reason,
+        hasReasoning,
+        choices: data.choices?.length ?? 0,
+        max_tokens: body.max_tokens,
+        thinking: body.thinking,
+      })
+      // 自适应降级重试：① 部分兼容端点对 max_tokens 超限会静默返回空 → 缩回 4096；② 对 thinking 参数不兼容 → 去掉
+      if (attempt === 0 && typeof body.max_tokens === 'number' && body.max_tokens > 4096) {
+        body.max_tokens = 4096
+      } else if (attempt === 1 && 'thinking' in body) {
+        delete body.thinking
+      }
     } catch (e) {
       clearTimeout(timer)
       // TypeError = 网络断（fetch 发不出）→ 离线冻结；AbortError = 超时 → 业务错误（可重试，不算离线）
