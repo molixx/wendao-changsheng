@@ -157,6 +157,7 @@ export const DEFAULT_SETTINGS: NarratorSettings = {
   baseUrl: 'https://api.deepseek.com',
   apiKey: '',
   model: 'deepseek-v4-flash',
-  temperature: 0.9,
+  // 0.6：结构化 JSON 输出更稳定（0.9 偏高，模型易跑偏成散文）
+  temperature: 0.6,
   useLlm: true,
 }
