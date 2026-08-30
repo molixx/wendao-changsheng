@@ -17,13 +17,25 @@ export interface Session {
 export const SESSION_KEY = 'wdcd.session'
 /** 剧情流保留上限（现场会话与手动存档共用；200 回合 ≈ 数百 KB，localStorage 容量内尽量多留历史） */
 export const SESSION_LOG_LIMIT = 200
+/** 现场会话的剧情流上限（每回合全量重写，比手动存档更轻量，避免频繁大 JSON 写入卡顿） */
+export const SESSION_SESSION_LIMIT = 80
 
 export function saveSession(s: Session): void {
-  try {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(s))
-  } catch (e) {
-    console.error('现场存档写入失败', e)
+  // 先按会话上限写入；配额不足（旧浏览器/超大叙事）时降级到最近 30 条
+  const write = (log: LogEntry[]): boolean => {
+    try {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ ...s, log }))
+      return true
+    } catch {
+      return false
+    }
   }
+  if (write(s.log)) return
+  if (write(s.log.slice(-30))) {
+    console.warn('现场存档空间紧张，已降级只保留最近 30 回合')
+    return
+  }
+  console.error('现场存档写入失败（localStorage 空间不足）')
 }
 
 /** 校验 GameState 关键字段（防御旧版/损坏的本地数据） */
@@ -63,7 +75,7 @@ export function hasSession(): boolean {
   return loadSession() !== null
 }
 
-/** 裁剪剧情流到上限 */
-export function trimLog(log: LogEntry[]): LogEntry[] {
-  return log.length > SESSION_LOG_LIMIT ? log.slice(-SESSION_LOG_LIMIT) : log
+/** 裁剪剧情流到上限（默认手动存档/快照上限；现场会话传 SESSION_SESSION_LIMIT） */
+export function trimLog(log: LogEntry[], limit: number = SESSION_LOG_LIMIT): LogEntry[] {
+  return log.length > limit ? log.slice(-limit) : log
 }

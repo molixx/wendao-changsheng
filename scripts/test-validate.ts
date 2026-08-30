@@ -1,6 +1,6 @@
 import assert from 'assert'
 import { buildInitialForTest } from './smoke-helpers'
-import { validateProposedStateChanges } from '../src/game/engine/turn'
+import { validateProposedStateChanges, applyDeltas } from '../src/game/engine/turn'
 
 function ok(cond: boolean, msg: string) {
   if (!cond) {
@@ -56,10 +56,10 @@ async function main() {
     return !!(res.rejected && res.rejected['affinity.顾清玄'] && /需为数字/.test(res.rejected['affinity.顾清玄'].reason))
   })
 
-  // 6. bag: numeric accepted, negative clamped to 0
-  check('bag negative clamped to 0', () => {
+  // 6. bag: negative sign preserved (增量语义，钳制在 applyDeltas)
+  check('bag negative sign preserved (增量语义)', () => {
     const res = validateProposedStateChanges(s0, { bag: { '聚气丹': -1 } }, '使用 聚气丹')
-    return !!(res.accepted && (res.accepted.bag as any)['聚气丹'] === 0)
+    return !!(res.accepted && (res.accepted.bag as any)['聚气丹'] === -1)
   })
 
   // 7. mood: numeric normalized
@@ -79,16 +79,16 @@ async function main() {
     return !!(res.rejected && res.rejected.status && /需为字符串或数组/.test(res.rejected.status.reason))
   })
 
-  // 10. stats: clamped 1~20
-  check('stats clamped to 1~20', () => {
+  // 10. stats: sign preserved（增量语义；最终值由 applyDeltas 钳制 1~20）
+  check('stats values passed through with sign (增量语义)', () => {
     const res = validateProposedStateChanges(s0, { stats: { 悟性: 30, 道心: -5 } }, '修炼')
-    return !!(res.accepted && (res.accepted.stats as any).悟性 === 20 && (res.accepted.stats as any).道心 === 1)
+    return !!(res.accepted && (res.accepted.stats as any).悟性 === 30 && (res.accepted.stats as any).道心 === -5)
   })
 
-  // 11. technique/enlightenment clamped
-  check('technique/enlightenment clamped', () => {
+  // 11. technique/enlightenment passed through (增量语义)
+  check('technique/enlightenment passed through (增量语义)', () => {
     const res = validateProposedStateChanges(s0, { technique: { 炼丹: 10 }, enlightenment: { 剑道: 0 } }, '修炼')
-    return !!(res.accepted && (res.accepted.technique as any).炼丹 === 5 && (res.accepted.enlightenment as any).剑道 === 1)
+    return !!(res.accepted && (res.accepted.technique as any).炼丹 === 10 && (res.accepted.enlightenment as any).剑道 === 0)
   })
 
   // 12. location equal to current -> accepted (redundant)
@@ -199,22 +199,35 @@ async function main() {
     return !!(res.rejected && res.rejected.mainQuest && /过长/.test(res.rejected.mainQuest.reason))
   })
 
-  // 29. technique boundary low clamped to 1
-  check('technique low clamped to 1', () => {
+  // 29. technique low passed through (增量语义；钳制在 applyDeltas)
+  check('technique low passed through (增量语义)', () => {
     const res = validateProposedStateChanges(s0, { technique: { 炼丹: 0 } }, '练')
-    return !!(res.accepted && (res.accepted.technique as any).炼丹 === 1)
+    return !!(res.accepted && (res.accepted.technique as any).炼丹 === 0)
   })
 
-  // 30. enlightenment boundary high clamped to 9
-  check('enlightenment high clamped to 9', () => {
+  // 30. enlightenment high passed through (增量语义；钳制在 applyDeltas)
+  check('enlightenment high passed through (增量语义)', () => {
     const res = validateProposedStateChanges(s0, { enlightenment: { 剑道: 15 } }, '练')
-    return !!(res.accepted && (res.accepted.enlightenment as any).剑道 === 9)
+    return !!(res.accepted && (res.accepted.enlightenment as any).剑道 === 15)
   })
 
   // 31. stats edge values accepted
   check('stats edge values accepted', () => {
     const res = validateProposedStateChanges(s0, { stats: { 资质: 1, 遁速: 20 } }, '修炼')
     return !!(res.accepted && (res.accepted.stats as any).资质 === 1 && (res.accepted.stats as any).遁速 === 20)
+  })
+
+  // 32. applyDeltas 侧钳制：超额增量封顶（钳制从 validate 移到 applyDeltas）
+  check('applyDeltas 超额属性增量封顶 20', () => {
+    const res = applyDeltas(s0, { stats: { 悟性: 30 } })
+    return res.state.player.stats.wuxing === 20
+  })
+
+  // 33. applyDeltas 侧钳制：负好感不越界（0 下限）
+  check('applyDeltas 负好感钳制到 0', () => {
+    const s1 = { ...s0, relationships: { 'gu-qingxuan': 3 } }
+    const res = applyDeltas(s1, { affinity: { '顾清玄': -5 } })
+    return (res.state.relationships['gu-qingxuan'] ?? 0) === 0
   })
 
   console.log(`\nSummary: passed ${passed}/${total} (exitCode=${process.exitCode || 0})`)

@@ -7,7 +7,8 @@ import type { SceneThemeKey } from '../ui/theme'
 import { isValidGameState, SESSION_LOG_LIMIT } from './session'
 
 export const SAVE_SCHEMA = 'wendao-changsheng'
-export const SAVE_VERSION = 2
+// v3：injury 统一为 id 存储（旧档中文名伤势仍可由 injuryIdOf 兜底识别）；读档不做硬性版本拦截，新旧存档互读
+export const SAVE_VERSION = 3
 export const SLOT_COUNT = 3
 
 const slotKey = (i: number) => `wdcd.slot.${i}`

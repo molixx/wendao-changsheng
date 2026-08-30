@@ -8,7 +8,7 @@
 import type { GameState } from '../state'
 import { roll } from './dice'
 import { fmtTimeShort } from './time'
-import { REALMS, GROWTH_BASE } from '../data/realms'
+import { REALMS, GROWTH_BASE, stageCostOf } from '../data/realms'
 import { GONGFAS, FATE_CHANGES } from '../data/systems'
 import { SPIRIT_ROOTS } from '../data/creation'
 
@@ -53,28 +53,10 @@ export function growthBaseOf(realm: string): number {
 }
 
 /**
- * 小境界所需修为（每阶，即 cultMax 基础值）。
- * 原文 9.1b 明确：炼气每阶 100 点、元婴每阶 1000+ 点、羽化/登仙每阶数千点；
- * 其余各境原文未给精确值，按「境界越高所需修为越多」的累加曲线推算（增量逐段翻倍）。
- * 注意：本表与 breakthrough.ts 中同名表保持一致（按约束两文件互不 import）。
+ * 小境界所需修为（每阶，即 cultMax 基础值）——单源表在 data/realms.ts（STAGE_COST_BASE），
+ * 与 breakthrough.ts 共用同一份，避免双表漂移。
  */
-export const STAGE_COST_BASE: Record<string, number> = {
-  炼气: 100, // 原文明确：每阶 100 点
-  筑基: 200, // 推算
-  结晶: 350, // 推算
-  金丹: 500, // 推算
-  具灵: 750, // 推算
-  元婴: 1000, // 原文明确：每阶 1000+ 点（取下限）
-  化神: 1500, // 推算
-  悟道: 2000, // 推算
-  羽化: 3000, // 原文明确：每阶数千点（取 3000）
-  登仙: 5000, // 原文明确：每阶数千点（取 5000）
-}
-
-export function stageCostOf(realm: string): number {
-  const c = STAGE_COST_BASE[realm]
-  return typeof c === 'number' ? c : 100
-}
+export { STAGE_COST_BASE, stageCostOf } from '../data/realms'
 
 // ------------------------------------------------------------
 // 公式系数（原文 9.1，与 CULTIVATION_FORMULA 表一致）
@@ -125,7 +107,7 @@ function fateKey(prefix: string): string {
 
 /**
  * 月修为增长（原文 9.1 + 9.1b）：
- *   月修为 = 10 × 资质系数（每点 +5%）× 灵根系数（变异灵根修同系功法再 ×1.2）
+ *   月修为 = 资质系数（每点 +5%）× 灵根系数（变异灵根修同系功法再 ×1.2）
  *            × 功法系数（黄1.0/玄1.3/地1.7/天2.2/仙3.0，无功法默认黄阶）
  *            × 灵气系数（贫瘠0.6/普通1.0/浓郁1.5/福地2.0/洞天2.5）
  *            × 心境系数（res.mood：1.2/1.0/0.5）× 成长基数（GROWTH_BASE，逐境递减）
@@ -133,6 +115,8 @@ function fateKey(prefix: string): string {
  *            × 内伤 ×0.5（原文 7.1：修为增长 -50%）
  *            × 逆天改命·聚灵体 ×1.15（原文 8.3：修炼+15%）
  *            × 先天道体 ×1.5（原文 6.4：修炼+50%）
+ *   注：原文公式中的「10」即炼气成长基数（9.1b：炼气10→筑基9→…逐境递减），由 growth 提供，
+ *       不再额外乘字面量 10（修复 10× 通胀：修复前炼气月修为被恒定放大 10 倍）。
  */
 export function monthlyCultivationGain(state: GameState, closedDoor = false): { gain: number; factors: string[] } {
   const p = state.player
@@ -189,7 +173,7 @@ export function monthlyCultivationGain(state: GameState, closedDoor = false): { 
   }
 
   const gain = Math.round(
-    10 * zizhiCoef * rootCoef * variant * gongfaCoef * lingqiCoef * moodCoef * growth * closedCoef * injuryCoef * fateCoef * physiqueCoef,
+    zizhiCoef * rootCoef * variant * gongfaCoef * lingqiCoef * moodCoef * growth * closedCoef * injuryCoef * fateCoef * physiqueCoef,
   )
   factors.push(`本月修为 +${gain}`)
   return { gain, factors }

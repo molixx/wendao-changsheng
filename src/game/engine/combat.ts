@@ -22,10 +22,11 @@
 //   · 遁走（16.0/16.2 遁速判定）：基础 30% + (玩家速−敌方速)×5%，敌方高一大境界再 −10%；垂死（气血<33%，
 //        7.1 无法遁走）→ 成功率 0；成功率区间 [5,95]
 // ============================================================
-import type { GameState } from '../state'
+import type { GameState, GameFlags } from '../state'
 import { d100, roll, chance, pick } from './dice'
 import { REALMS, REALM_PRESSURE } from '../data/realms'
 import { COMBAT_COMMANDS } from '../data/systems'
+import { COMBAT_LOOT } from '../data/balance'
 import { SPIRIT_ROOTS } from '../data/creation'
 
 export interface Combatant {
@@ -311,10 +312,10 @@ export function startCombat(
   const r = state.res
   const realmIdx = Math.max(0, REALMS.findIndex((re) => re.name === state.player.realm))
   const stageIdx = Math.max(0, (REALMS[realmIdx]?.stages ?? []).indexOf(state.player.stage))
-  // 受伤状态压制（7.1）：重伤 属性−20% 遁速减半；垂死 属性−50%、无法遁走
+  // 受伤状态压制（7.1，injury 统一存 id）：severe 重伤 属性−20% 遁速减半；dying 垂死 属性−50%、无法遁走
   const inj = r.injury ?? ''
-  const statMult = inj.includes('垂死') ? 0.5 : inj.includes('重伤') ? 0.8 : 1
-  const speedMult = inj.includes('垂死') ? 0 : inj.includes('重伤') ? 0.5 : 1
+  const statMult = inj === 'dying' ? 0.5 : inj === 'severe' ? 0.8 : 1
+  const speedMult = inj === 'dying' ? 0 : inj === 'severe' ? 0.5 : 1
 
   const player: Combatant = {
     name: state.player.daoName || state.player.name,
@@ -702,7 +703,7 @@ export function combatStep(cs: CombatState, command: string): CombatState {
  * 失败且 hp 归零 → flags.dead='战死'；遁走 → 位置不变、仅提示。
  */
 export function applyCombatResult(state: GameState, cs: CombatState): GameState {
-  const flags: Record<string, string | number | boolean> = { ...state.flags }
+  const flags: GameFlags = { ...state.flags }
   const log = [...state.log]
   const hp = Math.max(1, cs.player.hp)
   const mp = Math.max(1, cs.player.mp)
@@ -712,8 +713,8 @@ export function applyCombatResult(state: GameState, cs: CombatState): GameState 
   if (cs.over && cs.victory === true) {
     flags['combat.result'] = 'victory'
     flags['combat.enemy'] = cs.enemy.name
-    // 16.4 战利品：灵石按敌方境界浮动（击杀后由玩家捡取，此处给基础灵石）
-    const loot = (cs.enemy.realmIdx + 1) * 30 + Math.floor(Math.random() * 40)
+    // 16.4 战利品：灵石按敌方境界浮动（集中表 data/balance.ts）
+    const loot = (cs.enemy.realmIdx + 1) * COMBAT_LOOT.basePerRealm + Math.floor(Math.random() * COMBAT_LOOT.randomMax)
     spirit += loot
     if (cs.enemy.isBeast !== true) {
       karma += 1 // 16.4 杀人夺宝 = 业力 +

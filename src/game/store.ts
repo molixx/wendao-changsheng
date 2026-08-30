@@ -7,7 +7,7 @@ import { DEFAULT_SETTINGS } from './state'
 import { resolveTurn, openingTurn, buildWorldSnapshot, reconcileLifespan, nextId, type LogEntry } from './engine/turn'
 import { fmtTimeShort } from './engine/time'
 import { saveAuto, loadSnapshot } from './save'
-import { saveSession, loadSession, clearSession, trimLog, type Session } from './session'
+import { saveSession, loadSession, clearSession, trimLog, SESSION_SESSION_LIMIT, type Session } from './session'
 import { narrateOpening, sanitizeOptions, buildSystemPrompt, isOfflineError, hasLatexMarkup, sanitizeNarrative } from './narrator/llm'
 import { WORLD_BIBLE } from './data/worldview'
 import { OPENING_SCRIPTS } from './data/events'
@@ -78,12 +78,12 @@ function makeLogEntry(
   }
 }
 
-/** 由当前状态生成会话并落盘（剧情流裁剪到 50 回合） */
+/** 由当前状态生成会话并落盘（现场剧情流裁剪到 80 回合，控制每回合写入体积） */
 function persistCurrentSession(state: GameState, log: LogEntry[], pendingOptions: { text: string; tag?: string }[]): void {
   const lastScene = [...log].reverse().find((e) => e.scene)?.scene
   saveSession({
     state,
-    log: trimLog(log),
+    log: trimLog(log, SESSION_SESSION_LIMIT),
     pendingOptions,
     scene: lastScene,
     savedAt: Date.now(),

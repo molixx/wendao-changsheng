@@ -62,12 +62,14 @@ function applyBonuses(d: Draft): {
   hpMax: number
   mpMax: number
   spirit: number
+  fame: number
   techniqueLevels: Record<string, number>
 } {
   const stats: Stats = { ...d.stats }
   let hpMax = 100
   let mpMax = 80
   let spirit = 100
+  let fame = 0
   const techniqueLevels: Record<string, number> = {}
   const bonusList = [
     ORIGINS.find((o) => o.id === d.originId)?.bonus,
@@ -85,11 +87,15 @@ function applyBonuses(d: Draft): {
       } else if (k === '灵石') {
         spirit = Math.max(0, spirit + v)
       } else if (k === '炼丹') {
-        techniqueLevels['炼丹'] = Math.max(1, v)
+        // 统一存技艺 id（引擎用 'lian-dan'，修复中文键漂移）
+        techniqueLevels['lian-dan'] = Math.max(1, v)
+      } else if (k === '声望') {
+        // 声望为身份型数值，存 flags.fame 由状态卡展示（原文 6.2 官宦子弟「声望+20」）
+        fame = Math.max(0, fame + v)
       }
     }
   }
-  return { stats, hpMax, mpMax, spirit, techniqueLevels }
+  return { stats, hpMax, mpMax, spirit, fame, techniqueLevels }
 }
 
 function buildInitialState(d: Draft): GameState {
@@ -103,7 +109,7 @@ function buildInitialState(d: Draft): GameState {
       daoName: d.daoName || '无名',
       name: d.name || d.daoName || '无名',
       gender: d.gender,
-      age: d.age,
+      age: Math.min(60, Math.max(16, Math.round(d.age) || 16)), // 年龄输入防 0/越界（min=16 只约束原生控件）
       originId: d.originId,
       realm: realm.name,
       stage: realm.stages[0],
@@ -133,7 +139,7 @@ function buildInitialState(d: Draft): GameState {
     cave: { level: 1, spiritConcentration: '普通', facilities: [] },
     sectInfo: { sect: '散修', rank: '散修', contribution: 0 },
     mainQuest: '',
-    flags: { openingScript: d.scriptId, location: '东洲·青岳' },
+    flags: { openingScript: d.scriptId, location: '东洲·青岳', ...(b.fame > 0 ? { fame: b.fame } : {}) },
     log: [],
     lastSaveTurn: 0,
   }
@@ -168,7 +174,10 @@ export function CreationWizard() {
 
   const canNext =
     step !== 0 || (d.daoName.trim() && d.name.trim())
-  const canConfirm = d.originId && d.daoPathId && d.spiritRootId && d.physiqueId
+  const canConfirm =
+    d.originId && d.daoPathId && d.spiritRootId && d.physiqueId &&
+    statRemain >= 0 && talentPoints >= 0 && // 六维/天赋点未超支（双保险，UI 层已拦截）
+    Number.isFinite(d.age) && d.age >= 16 && d.age <= 60 // 年龄输入清空得 0 时拦截
 
   const confirm = () => {
     startNewGame(buildInitialState(d))

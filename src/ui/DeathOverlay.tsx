@@ -5,11 +5,15 @@ import { useGame } from '../game/store'
 import { loadAuto } from '../game/save'
 import { loadSnapshot } from '../game/save'
 import { loadSession } from '../game/session'
+import { ENDINGS } from '../game/data/events'
 import { Panel } from './Panel'
 
 export function DeathOverlay() {
   const { game, resetGame, continueFromSave, revertToSnapshot, restoreSession } = useGame()
-  const reason = game ? String(game.flags.dead ?? '陨落') : '陨落'
+  const deadReason = game ? String(game.flags.dead ?? '陨落') : '陨落'
+  // 结局判定（原文附录 C 结局表）：坐化 → 坐化结局；入魔 → 入魔线；其余战死/渡劫陨落 → 陨落结局
+  const endingId = game?.flags.modao ? 'rumo-line' : deadReason === '坐化' ? 'zuohua' : 'yunluo'
+  const ending = ENDINGS.find((e) => e.id === endingId) ?? ENDINGS.find((e) => e.id === 'yunluo')!
 
   const snap = loadSnapshot()
   const sess = loadSession()
@@ -18,8 +22,9 @@ export function DeathOverlay() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <Panel theme="zhusha" variant="warn" title="陨落" subtitle="道途已断" className="w-full max-w-md text-center">
-        <p className="leading-relaxed">{reason}</p>
+      <Panel theme="zhusha" variant="warn" title={ending.name} subtitle="道途已断" className="w-full max-w-md text-center">
+        <p className="leading-relaxed">{deadReason}</p>
+        <p className="cmdline mt-1 text-xs">{ending.type}结局 · {ending.desc}</p>
         <p className="cmdline mt-2 text-xs">真实修仙界，会死。非龙傲天——此乃本作灵魂。</p>
         <hr className="gold-line mt-3" />
         <div className="mt-3 flex flex-col gap-2">

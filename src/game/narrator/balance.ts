@@ -71,6 +71,7 @@ export async function queryBalance(baseUrl: string, apiKey: string): Promise<Bal
   try {
     const res = await fetch(`${base}/user/balance`, {
       headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(8000),
     })
     if (!res.ok) {
       const text = (await res.text()).slice(0, 300)

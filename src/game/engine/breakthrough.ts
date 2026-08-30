@@ -7,7 +7,7 @@
 
 import type { GameState } from '../state'
 import { roll, chance } from './dice'
-import { REALMS, LIFESPAN } from '../data/realms'
+import { REALMS, LIFESPAN, stageCostOf } from '../data/realms'
 import { FATE_CHANGES, ENLIGHTENMENT_BRANCHES } from '../data/systems'
 
 export type BreakthroughPath = '人道' | '地道' | '天道'
@@ -18,32 +18,12 @@ export interface MajorBreakthroughResult {
   /** 是否当场陨落（flags.dead='渡劫陨落'） */
   died: boolean
   msg: string
+  /** 突破成功时提供的逆天改命三选一（由调用方展示为选项，玩家选定后调用 applyFateChange 承领） */
+  fateChoices?: string[]
 }
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n))
-}
-
-/**
- * 小境界所需修为（每阶，即 cultMax 基础值）——与 cultivation.ts 中同名表保持一致
- * （按约束两文件互不 import，故各自维护一份；数据来源与推算规则见 cultivation.ts）。
- */
-const STAGE_COST_BASE: Record<string, number> = {
-  炼气: 100, // 原文明确：每阶 100 点
-  筑基: 200, // 推算
-  结晶: 350, // 推算
-  金丹: 500, // 推算
-  具灵: 750, // 推算
-  元婴: 1000, // 原文明确：每阶 1000+ 点（取下限）
-  化神: 1500, // 推算
-  悟道: 2000, // 推算
-  羽化: 3000, // 原文明确：每阶数千点（取 3000）
-  登仙: 5000, // 原文明确：每阶数千点（取 5000）
-}
-
-function stageCostOf(realm: string): number {
-  const c = STAGE_COST_BASE[realm]
-  return typeof c === 'number' ? c : 100
 }
 
 /** 逆天改命 flag 键（与 cultivation.ts 保持一致）：以 FATE_CHANGES 数据条目为准 */
@@ -199,7 +179,9 @@ export function majorBreakthrough(state: GameState, path: BreakthroughPath): Maj
   }
 
   const pathIdx: Record<BreakthroughPath, number> = { 人道: 0, 地道: 1, 天道: 2 }
-  const rate = finalRate(state, realmIdx, pathIdx[path])
+  // 筑基丹（原文 8.2：人道筑基需突破丹药）：人道破境时消耗 1 枚，成功率显著提升
+  const hasZhujiDan = (state.bag['zhuji-dan'] ?? 0) > 0
+  const rate = clamp(finalRate(state, realmIdx, pathIdx[path]) + (path === '人道' && hasZhujiDan ? 15 : 0), 1, 95)
   const { ok } = roll(rate)
 
   const pathDesc: Record<BreakthroughPath, string> = {
@@ -238,18 +220,27 @@ export function majorBreakthrough(state: GameState, path: BreakthroughPath): Maj
       state: next,
       ok: true,
       died: false,
+      fateChoices: choices,
       msg: [
         `雷云翻涌，天劫轰然而至！${pathDesc[path]}——`,
         `（掷骰 ${rate.toFixed(1)}%）天雷淬体、心魔临心，你咬碎银牙，硬生生挺了过来！`,
         `【突破成功】你破入 ${nextRealm.name}·初期！寿元上限更新为 ${newLifespan} 年，修为归零重新积累（0/${nextCultMax}）。`,
         `劫后灵光乍现，上天欲赐你一项逆天改命（三选一）：${choices.join('、')}。`,
-        '（请调用 applyFateChange(state, 逆天改命名) 择一而受。）',
+        '（在下方选项中选择「承 · 名称」一项承领；可叠加，可随后续突破升级。）',
       ].join('\n'),
     }
   }
 
-  const finalState: GameState = stoneConsumed ? { ...result.state, flags: { ...result.state.flags, heartStoneUsed: true } } : result.state
-  return { state: finalState, ok: result.ok, died: result.died, msg: result.msg }
+  let finalState: GameState = stoneConsumed ? { ...result.state, flags: { ...result.state.flags, heartStoneUsed: true } } : result.state
+  // 人道突破消耗筑基丹（无论成败，突破即耗）
+  if (path === '人道' && hasZhujiDan) {
+    const bag = { ...finalState.bag }
+    bag['zhuji-dan'] = (bag['zhuji-dan'] ?? 0) - 1
+    if (bag['zhuji-dan'] <= 0) delete bag['zhuji-dan']
+    finalState = { ...finalState, bag }
+    result = { ...result, msg: `${result.msg}\n（一枚筑基丹化为丹气护体，破境成功率 +15%。）` }
+  }
+  return { state: finalState, ok: result.ok, died: result.died, msg: result.msg, fateChoices: result.fateChoices }
 }
 
 /** 逆天改命候选（原文 8.3：每次大境界突破成功，从 3 个随机天资中选 1，可叠加可升级） */

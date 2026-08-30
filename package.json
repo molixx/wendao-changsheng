@@ -9,10 +9,18 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "smoke": "tsx scripts/smoke.ts",
+    "test": "tsx scripts/test-validate.ts",
+    "test:validate": "tsx scripts/test-validate.ts",
     "e2e": "tsx scripts/e2e.ts",
+    "e2e:save": "node scripts/e2e-save.mjs",
+    "e2e:llm": "node scripts/e2e-llm.mjs",
+    "e2e:balance": "node scripts/e2e-balance.mjs",
+    "e2e:offline": "node scripts/e2e-offline.mjs",
+    "diag:history": "node scripts/diag-history.mjs",
     "gen-bg": "node scripts/gen-bg.mjs",
     "verify-bg": "node scripts/verify-bg.mjs",
-    "opt-bg": "node scripts/opt-bg.mjs"
+    "opt-bg": "node scripts/opt-bg.mjs",
+    "apk": "./scripts/build-apk.sh"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",

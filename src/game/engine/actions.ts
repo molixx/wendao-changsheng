@@ -6,9 +6,9 @@ import type { SceneThemeKey } from '../../ui/theme'
 import { fmtTimeShort } from './time'
 import { pick as pickRand, chance } from './dice'
 import { cultivate } from './cultivation'
-import { majorBreakthrough, enlightenment } from './breakthrough'
-import { marketList, marketBuy, useItem } from './economy'
-import { practiceTechnique, caveUpgrade, sectJoin, sectTask, affectionAction, heal, randomEventRoll, qiyuRoll } from './systems'
+import { majorBreakthrough, enlightenment, applyFateChange } from './breakthrough'
+import { marketList, marketBuy, useItem, marketSell, studyGongfa, itemNameOf } from './economy'
+import { practiceTechnique, caveUpgrade, sectJoin, sectTask, affectionAction, heal, randomEventRoll, qiyuRoll, secretRealmExplore, majorEventRoll } from './systems'
 import { combatStep, applyCombatResult, startCombat, type CombatState } from './combat'
 import { saveSnapshot } from '../save'
 import type { LogEntry } from './turn'
@@ -23,6 +23,10 @@ export type Command =
   | { kind: 'cultivate'; closedDoor: boolean; months: number | null }
   | { kind: 'status' }
   | { kind: 'breakthrough'; path: '人道' | '地道' | '天道' | null }
+  | { kind: 'fateChange'; name: string }
+  | { kind: 'sell'; itemId: string }
+  | { kind: 'study'; itemId: string }
+  | { kind: 'secretRealm' }
   | { kind: 'enlighten'; branch: string | null }
   | { kind: 'market' }
   | { kind: 'buy'; itemId: string }
@@ -36,7 +40,7 @@ export type Command =
   | { kind: 'technique' }
   | { kind: 'techniquePractice'; techniqueId: string }
   | { kind: 'affection' }
-  | { kind: 'affectionAction'; npcId: string; action: '赠礼' | '论道' | '同游' | '表白' | '疏远' }
+  | { kind: 'affectionAction'; npcId: string; action: '赠礼' | '论道' | '同游' | '表白' | '疏远' | '双修' }
   | { kind: 'heal' }
   | { kind: 'help' }
   | { kind: 'travel' }
@@ -47,6 +51,18 @@ export type Command =
 export function routeCommand(input: string): Command {
   const a = input.trim()
   if (!a) return { kind: 'free' }
+  // 承领逆天改命：「承 · 丹药精通（炼丹+1 级）」（突破成功后的三选一；须先于「技艺/炼丹」等规则匹配）
+  if (/^承\s*[·:：]?\s*/.test(a)) return { kind: 'fateChange', name: a.replace(/^承\s*[·:：]?\s*/, '').trim() }
+  // 研习功法：「研习 玄阶功法」（须先于「悟道/参悟」规则，避免误判）
+  if (/研习/.test(a)) {
+    const m = a.match(/研习\s*(.+)/)
+    return { kind: 'study', itemId: m ? m[1].trim() : '' }
+  }
+  // 出售：「卖 聚气丹」/「摆摊卖货」（须先于「坊市/买卖」规则，避免死循环回坊市面板）
+  if (/^卖\s*/.test(a) || /摆摊|卖货|出售/.test(a)) {
+    const m = a.match(/^卖\s*(.+)/)
+    return { kind: 'sell', itemId: m ? m[1].trim() : '' }
+  }
   if (/修炼|闭关|打坐|运功/.test(a)) {
     // 只有显式「闭关 N 月/N 年」才给确定时长（代码权威）；「修炼/闭关」未写时长 → null（时间由 AI 叙事决定）
     let months: number | null = null
@@ -89,12 +105,14 @@ export function routeCommand(input: string): Command {
   if (/疗伤|养伤|治疗/.test(a)) return { kind: 'heal' }
   if (/帮助|指令|help/.test(a)) return { kind: 'help' }
   if (/回到主剧情|回到主线|继续剧情/.test(a)) return { kind: 'free' }
+  // 探索秘境：须先于「游历/探索」规则（其正则含「秘境」，会被吞进 travel）
+  if (/探索秘境|进入秘境|秘境探索|一探秘境/.test(a)) return { kind: 'secretRealm' }
   if (/游历|探索|出门|地图|秘境|下山/.test(a)) return { kind: 'travel' }
   if (/劫掠|夺宝|拦路/.test(a)) return { kind: 'robbery' }
-  // 提到 NPC 名字 → 情缘互动（赠礼/论道/同游/表白/疏远）
+  // 提到 NPC 名字 → 情缘互动（赠礼/论道/同游/表白/双修/疏远）
   const npc = NPCS.find((n) => a.includes(n.name))
   if (npc) {
-    const kind = /赠礼|送礼/.test(a) ? '赠礼' : /表白/.test(a) ? '表白' : /疏远/.test(a) ? '疏远' : /同游|约会/.test(a) ? '同游' : '论道'
+    const kind = /赠礼|送礼/.test(a) ? '赠礼' : /表白/.test(a) ? '表白' : /疏远/.test(a) ? '疏远' : /双修/.test(a) ? '双修' : /同游|约会/.test(a) ? '同游' : '论道'
     return { kind: 'affectionAction', npcId: npc.id, action: kind }
   }
   if (/情缘|好感|双修|道侣|赠礼/.test(a)) return { kind: 'affection' }
@@ -120,6 +138,24 @@ const CMD_OPTIONS = (extra: { text: string; tag?: string }[] = []): { text: stri
   { text: '回到主剧情', tag: '平和' },
 ]
 
+/** 背包中可战斗使用的丹药（有 hp/mp 即时效果的坊市物品，如 回气丹/灵药；修炼丹/突破丹不计入） */
+function findCombatPill(bag: Record<string, number>): string | null {
+  for (const id of Object.keys(bag)) {
+    const item = marketList().find((i) => i.id === id)
+    if (item?.effect && (item.effect.hp !== undefined || item.effect.mp !== undefined)) return id
+  }
+  return null
+}
+
+/** 战斗用丹后从背包扣除 1 枚 */
+function consumeCombatPill(bag: Record<string, number>): Record<string, number> {
+  const id = findCombatPill(bag)
+  if (!id) return bag
+  const next = { ...bag, [id]: (bag[id] ?? 0) - 1 }
+  if (next[id] <= 0) delete next[id]
+  return next
+}
+
 /** 在战斗中：任何行动先进战斗指令 */
 function tryCombatStep(state: GameState, command: string): SystemResult | null {
   const raw = state.flags.combat
@@ -130,6 +166,22 @@ function tryCombatStep(state: GameState, command: string): SystemResult | null {
   } catch {
     return null
   }
+  // 用符/用丹：须背包中有回血回灵丹药，且每次使用消耗 1 枚（与坊市/背包账目一致）
+  const isItemCmd = /符丹|用丹|用符|丹药|用药/.test(command)
+  if (isItemCmd && !findCombatPill(state.bag)) {
+    return {
+      state,
+      narrative: '你翻遍储物袋，并无回血回灵的丹药，只得作罢。',
+      options: [
+        { text: '攻击', tag: '风险' },
+        { text: '施法', tag: '风险' },
+        { text: '绝技', tag: '风险' },
+        { text: '遁走', tag: '平和' },
+      ],
+      scene: 'zhusha',
+      timePassedMonths: 0,
+    }
+  }
   const step = combatStep(cs, command)
   const last = step.log[step.log.length - 1] ?? ''
   if (step.over) {
@@ -139,7 +191,7 @@ function tryCombatStep(state: GameState, command: string): SystemResult | null {
     // 战斗失利（败亡或落败未死）→ 记标记，供失败回退提示（快照已在战斗前写好）
     if (!step.victory && !step.escaped) flags.combatLost = true
     const result: SystemResult = {
-      state: { ...s2, flags },
+      state: { ...s2, bag: isItemCmd ? consumeCombatPill(s2.bag) : s2.bag, flags },
       narrative: `${last}\n\n${step.victory ? '【你胜了这场争斗。】' : step.escaped ? '【你遁走了。】' : '【你败了……】'}`,
       options: CMD_OPTIONS([{ text: '查看状态', tag: '平和' }]),
       scene: 'zhusha',
@@ -148,7 +200,7 @@ function tryCombatStep(state: GameState, command: string): SystemResult | null {
     return result
   }
   return {
-    state: { ...state, flags: { ...state.flags, combat: JSON.stringify(step) } },
+    state: { ...state, bag: isItemCmd ? consumeCombatPill(state.bag) : state.bag, flags: { ...state.flags, combat: JSON.stringify(step) } },
     narrative: last,
     options: [
       { text: '攻击', tag: '风险' },
@@ -238,9 +290,25 @@ export function executeSystem(cmd: Command, state: GameState, storyLog?: LogEntr
       const failed = !r.ok && !r.died && r.state !== state
       const st2 = failed ? { ...r.state, flags: { ...r.state.flags, lastBreakFailed: true } } : r.state
       const opts = r.ok
-        ? CMD_OPTIONS([{ text: '查看状态', tag: '平和' }, { text: '继续修炼', tag: '平和' }])
+        ? CMD_OPTIONS([
+            ...(r.fateChoices?.map((f) => ({ text: `承 · ${f}`, tag: '机缘' as const })) ?? []),
+            { text: '查看状态', tag: '平和' },
+            { text: '继续修炼', tag: '平和' },
+          ])
         : CMD_OPTIONS([{ text: '闭关疗伤', tag: '平和' }, { text: '继续修炼', tag: '平和' }])
       return { state: st2, narrative: r.msg, options: opts, scene: 'xuanzi', timePassedMonths: 1 }
+    }
+
+    case 'fateChange': {
+      // 承领逆天改命（突破成功后的三选一；可叠加可升级，不消耗月数）
+      const r = applyFateChange(state, cmd.name)
+      return {
+        state: r.state,
+        narrative: r.msg,
+        options: CMD_OPTIONS([{ text: '查看状态', tag: '平和' }, { text: '继续修炼', tag: '平和' }]),
+        scene: 'xuanzi',
+        timePassedMonths: 0,
+      }
     }
 
     case 'enlighten': {
@@ -304,7 +372,11 @@ export function executeSystem(cmd: Command, state: GameState, storyLog?: LogEntr
       return {
         state,
         narrative: `储物袋中：${names.join('、')}。`,
-        options: CMD_OPTIONS(entries.slice(0, 3).map(([k]) => ({ text: `用 ${findItem(k)?.name ?? k}`, tag: '平和' }))),
+        options: CMD_OPTIONS(entries.slice(0, 3).map(([k]) => {
+          const item = findItem(k)
+          const label = item?.kind === '功法' ? `研习 ${item.name}` : `用 ${item?.name ?? k}`
+          return { text: label, tag: '平和' as const }
+        })),
         scene: 'qingyu',
         timePassedMonths: 0,
       }
@@ -322,6 +394,57 @@ export function executeSystem(cmd: Command, state: GameState, storyLog?: LogEntr
         options: CMD_OPTIONS([{ text: '背包', tag: '平和' }, { text: '修炼', tag: '平和' }]),
         scene: 'qingyu',
         timePassedMonths: 0,
+      }
+    }
+
+    case 'sell': {
+      const entries = Object.entries(state.bag)
+      if (entries.length === 0) {
+        return { state, narrative: '你身无长物，无可出售。', options: CMD_OPTIONS([{ text: '坊市', tag: '平和' }]), scene: 'liujin', timePassedMonths: 0 }
+      }
+      if (!cmd.itemId) {
+        return {
+          state,
+          narrative: `你摆开摊子，可售之物：${entries.map(([k, v]) => `${itemNameOf(k)}×${v}`).join('、')}。`,
+          options: CMD_OPTIONS(entries.slice(0, 3).map(([k]) => ({ text: `卖 ${itemNameOf(k)}`, tag: '平和' as const }))),
+          scene: 'liujin',
+          timePassedMonths: 0,
+        }
+      }
+      const found = findItem(cmd.itemId) ?? marketList().find((i) => i.name === cmd.itemId)
+      const id = found?.id ?? Object.keys(state.bag).find((k) => k === cmd.itemId || itemNameOf(k).includes(cmd.itemId))
+      if (!id || (state.bag[id] ?? 0) <= 0) {
+        return { state, narrative: `你并无「${cmd.itemId}」可卖。`, options: CMD_OPTIONS([{ text: '坊市', tag: '平和' }]), scene: 'liujin', timePassedMonths: 0 }
+      }
+      const sr = marketSell(state, id, 1)
+      return {
+        state: sr.state,
+        narrative: sr.msg,
+        options: CMD_OPTIONS([{ text: '继续卖货', tag: '平和' }, { text: '坊市', tag: '平和' }]),
+        scene: 'liujin',
+        timePassedMonths: 0,
+      }
+    }
+
+    case 'study': {
+      const r = studyGongfa(state, cmd.itemId)
+      return {
+        state: r.state,
+        narrative: r.msg,
+        options: CMD_OPTIONS([{ text: '背包', tag: '平和' }, { text: '修炼', tag: '平和' }]),
+        scene: 'qingyu',
+        timePassedMonths: r.ok ? 1 : 0,
+      }
+    }
+
+    case 'secretRealm': {
+      const r = secretRealmExplore(state)
+      return {
+        state: r.state,
+        narrative: r.msg,
+        options: CMD_OPTIONS([{ text: '修炼', tag: '平和' }, { text: '继续游历', tag: '机缘' }]),
+        scene: 'ziqi',
+        timePassedMonths: r.ok ? 1 : 0,
       }
     }
 
@@ -414,12 +537,13 @@ export function executeSystem(cmd: Command, state: GameState, storyLog?: LogEntr
     }
 
     case 'affection': {
+      const partner = state.daoPartner ? NPCS.find((n) => n.id === state.daoPartner) : null
       return {
         state,
-        narrative: `有缘之人：${NPCS.map((n) => n.name).join('、')}。可赠礼、论道、同游，增进情谊。`,
+        narrative: `有缘之人：${NPCS.map((n) => n.name).join('、')}。可赠礼、论道、同游，增进情谊${partner ? `；与道侣 ${partner.name} 可双修共进` : ''}。`,
         options: [
           ...NPCS.slice(0, 3).map((n) => ({ text: `论道 · ${n.name}`, tag: '情缘' as const })),
-          
+          ...(partner ? [{ text: `双修 · ${partner.name}`, tag: '情缘' as const }] : []),
         ],
         scene: 'taofen',
         timePassedMonths: 0,
@@ -487,6 +611,14 @@ export function executeSystem(cmd: Command, state: GameState, storyLog?: LogEntr
         const s2: GameState = { ...s, flags: { ...s.flags, combat: JSON.stringify(cs) } }
         s = s2
         parts.push(`遭遇：${enemy.name}拦住去路！`)
+      }
+      // 大事件（升仙大会/宗门大比/灵气潮汐等，按入道年份周期触发；不打断战斗）
+      if (!s.flags.combat) {
+        const major = majorEventRoll(s)
+        if (major) {
+          s = major.state
+          parts.push(`大事件：${major.msg}`)
+        }
       }
       const narration = parts.length
         ? `你离开洞府，踏入山野。${parts.join(' ')}`

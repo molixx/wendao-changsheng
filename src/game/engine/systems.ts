@@ -15,8 +15,10 @@
 import type { GameState, Resources } from '../state'
 import { d100, roll, chance, pick, die } from './dice'
 import { TECHNIQUES, SECT_RANKS, INJURIES, GONGFAS, CAVE_FACILITIES } from '../data/systems'
-import { RANDOM_EVENTS, QIYUS } from '../data/events'
+import { CAVE_UPGRADE_COSTS, SECT_TASK_REWARD } from '../data/balance'
+import { RANDOM_EVENTS, QIYUS, MAJOR_EVENTS } from '../data/events'
 import { NPCS } from '../data/world'
+import { growthBaseOf } from './cultivation'
 
 // ---------------- 通用不可变工具 ----------------
 
@@ -50,14 +52,14 @@ function enlightenmentLevel(state: GameState, branch: string): number {
   return 0
 }
 
-/** 受伤等级 id → 中文名（写入 state.res.injury 时用原文名） */
+/** 受伤等级 id → 中文名（仅用于展示文案；state.res.injury 一律存 id，禁止存中文名） */
 function injuryName(id: string): string {
   return INJURIES.find(i => i.id === id)?.name ?? id
 }
 
-/** 受伤名称 → id（兼容 7.1 表「中毒/蛊」与状态卡注释「中毒蛊」两种写法） */
+/** 受伤 id 或名称 → id（统一为 id；兼容历史存档中的中文名，兼容 7.1 表「中毒/蛊」与「中毒蛊」两种写法） */
 function injuryIdOf(name: string): string | null {
-  const found = INJURIES.find(i => i.name === name)
+  const found = INJURIES.find(i => i.id === name || i.name === name)
   if (found) return found.id
   if (name === '中毒蛊') return 'poison'
   return null
@@ -168,11 +170,10 @@ export function practiceTechnique(
 // 二、洞府（原文第十三章）
 // 原文要点：灵气浓度决定修炼灵气系数（9.1：贫瘠0.6/普通1.0/浓郁1.5/福地2.0/洞天2.5），
 //          可用灵石/材料/灵脉升级；设施：静室/丹房/器坊/灵田/聚灵阵/禁制。
-// 取舍说明：原文未给升级价格，此处按 200/800/3000/12000（约 4 倍递增）取舍；仅实现灵石路径。
+// 取舍说明：原文未给升级价格，集中表在 data/balance.ts（CAVE_UPGRADE_COSTS，约 4 倍递增）；仅实现灵石路径。
 // ============================================================
 
 const CAVE_LEVELS: readonly string[] = ['贫瘠', '普通', '浓郁', '福地', '洞天']
-const CAVE_UPGRADE_COSTS: readonly number[] = [200, 800, 3000, 12000]
 
 export function caveUpgrade(state: GameState): { state: GameState; ok: boolean; msg: string } {
   const lv = state.cave.level
@@ -246,19 +247,19 @@ export function sectTask(state: GameState): { state: GameState; ok: boolean; msg
   let spiritGain: number
   let detail: string
   if (r.ok) {
-    contribution += 10
-    spiritGain = 20 + die(30) // 21~50 灵石
-    detail = `圆满完成任务，宗门记功 10 点，赐灵石 ${spiritGain}。`
+    contribution += SECT_TASK_REWARD.contributionOk
+    spiritGain = SECT_TASK_REWARD.baseSpirit + die(SECT_TASK_REWARD.bonusSpirit) // 21~50 灵石
+    detail = `圆满完成任务，宗门记功 ${SECT_TASK_REWARD.contributionOk} 点，赐灵石 ${spiritGain}。`
   } else {
-    contribution += 2
-    spiritGain = 5
-    detail = `任务波折无功，只算苦劳 +2 贡献，得灵石 ${spiritGain} 慰劳。`
+    contribution += SECT_TASK_REWARD.contributionFail
+    spiritGain = SECT_TASK_REWARD.failSpirit
+    detail = `任务波折无功，只算苦劳 +${SECT_TASK_REWARD.contributionFail} 贡献，得灵石 ${spiritGain} 慰劳。`
   }
 
   let next = withRes(state, { spirit: state.res.spirit + spiritGain })
   if (!r.ok && danger && chance(0.1)) {
     // 猎妖/镇守失败小概率负伤
-    next = withRes(next, { hp: Math.max(1, next.res.hp - 5), injury: next.res.injury ?? injuryName('light') })
+    next = withRes(next, { hp: Math.max(1, next.res.hp - 5), injury: next.res.injury ?? 'light' })
     detail += ' 与妖兽缠斗负了轻伤。'
   }
   next = { ...next, sectInfo: { ...next.sectInfo, contribution } }
@@ -305,13 +306,29 @@ function affectionStage(v: number): string {
 export function affectionAction(
   state: GameState,
   npcId: string,
-  kind: '赠礼' | '论道' | '同游' | '表白' | '疏远',
+  kind: '赠礼' | '论道' | '同游' | '表白' | '疏远' | '双修',
 ): { state: GameState; ok: boolean; msg: string } {
   const npc = NPCS.find(n => n.id === npcId)
   if (!npc) return { state, ok: false, msg: '查无此人。' }
 
   const cur = state.relationships[npcId] ?? 0
   const mult = 1 + 0.1 * enlightenmentLevel(state, '有情道') // 有情道：情缘好感收益+10%/级
+
+  if (kind === '双修') {
+    // 双修（原文 14 章双修增益；玄阴体/纯阳体增益更大）：需道侣身份 + 好感 80+
+    if (state.daoPartner !== npcId) return { state, ok: false, msg: `${npc.name}与你并无道侣之约，岂可轻言双修。` }
+    if (cur < AFFECTION_DAO_PARTNER) return { state, ok: false, msg: `你与${npc.name}情分尚浅（好感 ${cur}），双修需两情相悦（道侣 80+）。` }
+    const dualBonus = state.player.physiqueId === 'xuanyin' || state.player.physiqueId === 'chunyang' ? 1.5 : 1.0
+    const gain = Math.max(1, Math.round(growthBaseOf(state.player.realm) * 3 * dualBonus))
+    const next = withRes(state, { cult: Math.min(state.res.cultMax, state.res.cult + gain), mood: 1.2 })
+    const rel = { ...state.relationships, [npcId]: clamp(cur + 2, 0, 100) }
+    const note = dualBonus > 1 ? '（玄阴/纯阳之体，双修增益更显）' : ''
+    return {
+      state: withLog({ ...next, relationships: rel }, `与${npc.name}双修`),
+      ok: true,
+      msg: `月下共修，阴阳和合——修为 +${gain}，心境大定（1.2）。${npc.name}好感 ${cur + 2}${note}。`,
+    }
+  }
 
   if (kind === '表白') {
     if (state.daoPartner === npcId) return { state, ok: false, msg: `你与${npc.name}已是道侣。` }
@@ -424,7 +441,7 @@ export function randomEventRoll(
         return { state: next, event: evt.name, applied: true, msg: `妖兽袭村，你出手击退妖物，却也受了 ${dmg} 点伤。` }
       }
       // 气血归零 → 重伤昏迷（原文 16.4）
-      const next = withRes(state, { hp: 1, injury: state.res.injury ?? injuryName('severe') })
+      const next = withRes(state, { hp: 1, injury: state.res.injury ?? 'severe' })
       return { state: next, event: evt.name, applied: true, msg: '妖兽袭村，你苦战不敌，重伤昏迷——好在被村民救回，需静养疗伤。' }
     }
     case 'message-talisman': {
@@ -436,7 +453,7 @@ export function randomEventRoll(
     }
     case 'heart-demon-rising': {
       if (state.player.stats.daoxin < 40) {
-        const next = withRes(state, { injury: state.res.injury ?? injuryName('heart-demon') })
+        const next = withRes(state, { injury: state.res.injury ?? 'heart-demon' })
         return { state: next, event: evt.name, applied: true, msg: '心魔暗生，道心不固，心魔缠身（原文 7.1：道心 <40 或情劫所致）。' }
       }
       return { state, event: evt.name, applied: false, msg: '心魔暗生，幸而道心坚定，运功压下，并无大碍。' }
@@ -506,7 +523,64 @@ export function qiyuRoll(state: GameState): { state: GameState; qiyu: string; ms
 }
 
 // ============================================================
-// 七、疗伤（原文第七章 7.1 受伤等级表）
+// 七、秘境与大事件（原文 15 章秘境、5.2b 大事件）
+// ============================================================
+
+/** 探索秘境：一次性消耗 secretRealmOpen 标记（随机事件「秘境入口现世」置位），按权重结算机缘/凶险 */
+export function secretRealmExplore(state: GameState): { state: GameState; ok: boolean; msg: string } {
+  if (!state.flags.secretRealmOpen) return { state, ok: false, msg: '你环顾四周，并无秘境入口现世，无从探索。' }
+  const flags = { ...state.flags }
+  delete flags.secretRealmOpen
+  const r = d100()
+  if (r <= 50) {
+    // 灵石（50~150）
+    const gain = 50 + die(100)
+    const next = withLog({ ...state, flags, res: { ...state.res, spirit: state.res.spirit + gain } }, `探索秘境：得灵石 ${gain}`)
+    return { state: next, ok: true, msg: `秘境中灵草灵石俯拾即是，你满载而归（灵石 +${gain}）。` }
+  }
+  if (r <= 75) {
+    // 灵药
+    const next = withLog(withBag({ ...state, flags }, 'lingyao', 1), '探索秘境：得灵药一份')
+    return { state: next, ok: true, msg: '你在秘境深处采得一株品相上佳的灵药（背包 +灵药×1，可服用回血或作炼丹材料）。' }
+  }
+  if (r <= 90) {
+    // 功法卷轴（研习闭环）
+    const next = withLog(withBag({ ...state, flags }, 'xuanjie-gongfa', 1), '探索秘境：得玄阶功法卷轴')
+    return { state: next, ok: true, msg: '秘境石室中供奉着一卷玄阶功法！你小心收好（背包 +玄阶功法×1，可用「研习」习得）。' }
+  }
+  // 凶险：守护妖兽伏击，负伤而逃
+  const lost = Math.max(1, Math.round(state.res.hpMax * 0.25))
+  const next = withRes({ ...state, flags }, { hp: Math.max(1, state.res.hp - lost), injury: state.res.injury ?? 'light' })
+  return { state: withLog(next, '探索秘境遇险负伤'), ok: true, msg: `秘境深处窜出一头守护妖兽，你且战且退，负伤脱身（气血 -${lost}，轻伤）。` }
+}
+
+/** 大事件（原文：升仙大会 5 年一度 / 宗门大比 10 年 / 猎魔大会 20 年 / 灵气潮汐千年一度 / 天机拍卖会不定期）：
+ *  按入道年份周期倍数触发（大周期优先），附小额灵石奖励；未命中返回 null。完整玩法（参赛/拍卖）留待后续。 */
+export function majorEventRoll(state: GameState): { state: GameState; msg: string } | null {
+  const year = state.timeline.year
+  const byCycle: { cycle: number; id: string; gain: number }[] = [
+    { cycle: 1000, id: 'lingqi-chaoxi', gain: 200 },
+    { cycle: 20, id: 'liemo-dahui', gain: 40 },
+    { cycle: 10, id: 'zongmen-dabi', gain: 30 },
+    { cycle: 5, id: 'shengxian-dahui', gain: 20 },
+  ]
+  for (const { cycle, id, gain } of byCycle) {
+    if (year % cycle === 0) {
+      const evt = MAJOR_EVENTS.find((e) => e.id === id)
+      if (!evt) continue
+      const next = withLog(withRes(state, { spirit: state.res.spirit + gain }), `大事件：${evt.name}`)
+      return { state: next, msg: `${evt.name}（${evt.cycle}一度）在修真界拉开帷幕：${evt.desc || '群雄云集'}。你恰在近旁，得见盛况，顺手赚得灵石 ${gain}。` }
+    }
+  }
+  if (chance(0.02)) {
+    const evt = MAJOR_EVENTS.find((e) => e.id === 'tianji-paimai')
+    if (evt) return { state, msg: `${evt.name}（不定期）在坊市开槌，你路过围观，涨了见识（可择日参与）。` }
+  }
+  return null
+}
+
+// ============================================================
+// 八、疗伤（原文第七章 7.1 受伤等级表）
 // 原文要点：轻伤——丹药或疗养数日恢复；重伤——疗伤药 + 月余静养，可能留暗疾；
 //          垂死——续命丹药 + 高阶医修/灵药；内伤——特殊丹药、长时间闭关；
 //          中毒/蛊——解毒丹、药王谷；心魔缠身——渡心魔、论道、清心。
@@ -559,10 +633,10 @@ export function heal(
   const stepDown = (): GameState => {
     let nextInjury: string | null = null
     if (id === 'inner') {
-      nextInjury = injuryName('light')
+      nextInjury = 'light'
     } else {
       const idx = HP_INJURIES.indexOf(id)
-      if (idx >= 0) nextInjury = idx + 1 < HP_INJURIES.length ? injuryName(HP_INJURIES[idx + 1]) : null
+      if (idx >= 0) nextInjury = idx + 1 < HP_INJURIES.length ? HP_INJURIES[idx + 1] : null
     }
     const hpGain = Math.max(1, Math.round(state.res.hpMax * 0.3))
     return withRes(state, { hp: Math.min(state.res.hpMax, state.res.hp + hpGain), injury: nextInjury })

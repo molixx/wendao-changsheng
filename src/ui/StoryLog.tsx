@@ -9,7 +9,6 @@ import { GoldLine, Tag } from './Panel'
 function EngineTag({ engine }: { engine?: LogEntry['engine'] }) {
   if (engine === 'llm') return <span className="rounded px-1.5 text-xs font-bold" style={{ background: '#8B6FA8', color: '#fff' }}>天道</span>
   if (engine === 'code') return <span className="rounded px-1.5 text-xs font-bold" style={{ background: '#8C8578', color: '#fff' }}>结算</span>
-  if (engine === 'offline') return <span className="rounded px-1.5 text-xs font-bold" style={{ background: '#C4675C', color: '#fff' }}>离线</span>
   return null
 }
 
@@ -68,7 +67,7 @@ function EntryCard({
             }
             // v may be { proposed, reason } or a plain value
             if (v && typeof v === 'object' && 'reason' in v) {
-              const vp: any = v as any
+              const vp = v as { proposed?: unknown; reason?: string }
               const propStr = vp.proposed !== undefined ? ` 建议：${JSON.stringify(vp.proposed)}` : ''
               return `${readable[k] ?? k}: ${vp.reason}${propStr}`
             }
@@ -148,7 +147,13 @@ function SummaryRow({ entry }: { entry: LogEntry }) {
 }
 
 export function StoryLog() {
-  const { log, busy, error, submitAction, clearError, turnError } = useGame()
+  // 选择器订阅：只订阅本组件用到的切片，避免每回合全量重渲染
+  const log = useGame((s) => s.log)
+  const busy = useGame((s) => s.busy)
+  const error = useGame((s) => s.error)
+  const turnError = useGame((s) => s.turnError)
+  const submitAction = useGame((s) => s.submitAction)
+  const clearError = useGame((s) => s.clearError)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [freeOpen, setFreeOpen] = useState(false)
   const [freeText, setFreeText] = useState('')
@@ -167,7 +172,7 @@ export function StoryLog() {
     <div className="flex flex-col gap-4">
       {/* 回合执行失败（AI 报错/离线/未配置）→ 停留当前卡片，手动重试 */}
       {turnError && (
-        <div className={`panel ${turnError.offline ? 'panel--warn' : 'panel--warn'} px-4 py-3`}>
+        <div className="panel panel--warn px-4 py-3">
           <p className="danger-line">
             {turnError.offline ? '📡 网络离线，剧情暂停' : '⚠ 天道推演失败'}：{turnError.message}
           </p>
@@ -238,10 +243,11 @@ export function StoryLog() {
                 <span className="text-sm font-normal opacity-90">点击条目展开全文（只读）</span>
               </header>
               <div className="max-h-[60vh] overflow-y-auto p-2">
-                {log.map((e) => (
+                {log.slice(-60).map((e) => (
                   <SummaryRow key={e.id} entry={e} />
                 ))}
                 {log.length === 0 && <p className="cmdline text-center py-6">尚无历史回合。</p>}
+                {log.length > 60 && <p className="cmdline text-center py-3">仅展示最近 60 回合（完整剧情流可在存档 JSON 中查看）</p>}
               </div>
               <footer className="px-4 pb-3">
                 <GoldLine />

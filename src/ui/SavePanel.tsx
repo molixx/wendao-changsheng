@@ -10,7 +10,7 @@ import { Panel } from './Panel'
 import { ConfirmDialog } from './ConfirmDialog'
 
 export function SavePanel({ onClose }: { onClose: () => void }) {
-  const { game, log, pendingOptions } = useGame()
+  const { game, log, pendingOptions, continueFromSave } = useGame()
   const [slots, setSlots] = useState(listSlots())
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null)
   const [confirm, setConfirm] = useState<{ kind: 'overwrite' | 'delete' | 'load'; slot: number; title: string; message: string } | null>(null)
@@ -62,15 +62,8 @@ export function SavePanel({ onClose }: { onClose: () => void }) {
   }
 
   const doLoad = (f: NonNullable<ReturnType<typeof loadFromSlot>>) => {
-    useGame.setState({
-      screen: 'play',
-      game: f.state,
-      log: (f.log as typeof log | undefined) ?? [],
-      pendingOptions: (f.pendingOptions as typeof pendingOptions | undefined) ?? [],
-      error: null,
-      snapshotOffer: null,
-      restoredTurn: null,
-    })
+    // 走 store.continueFromSave 的归一化路径（normalizeLog / reconcileLifespan），与标题页读档一致
+    continueFromSave(f)
     tip('读档成功')
     setConfirm(null)
     onClose()
@@ -106,15 +99,7 @@ export function SavePanel({ onClose }: { onClose: () => void }) {
     reader.onload = () => {
       const f = importJson(String(reader.result))
       if (f) {
-        useGame.setState({
-          screen: 'play',
-          game: f.state,
-          log: (f.log as typeof log | undefined) ?? [],
-          pendingOptions: (f.pendingOptions as typeof pendingOptions | undefined) ?? [],
-          error: null,
-          snapshotOffer: null,
-          restoredTurn: null,
-        })
+        continueFromSave(f)
         tip('导入成功')
         onClose()
       } else {

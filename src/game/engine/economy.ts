@@ -6,9 +6,13 @@
 // 硬性约束：不可变更新（返回新对象，绝不 mutate 入参 state）。
 // ============================================================
 import type { GameState, Resources } from '../state'
-import { PRICES } from '../data/systems'
+import { PRICES, GONGFAS } from '../data/systems'
 import { REALMS } from '../data/realms'
-import { roll, chance } from './dice'
+import { roll, chance, pick } from './dice'
+
+function clamp(v: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, v))
+}
 
 /** 坊市商品（结构化商品表条目） */
 export interface MarketItem {
@@ -149,6 +153,12 @@ export function itemNameOf(id: string): string {
   return hit?.name ?? id
 }
 
+/** 物品 id 或名称 → id（AI deltas 的背包键常写中文名，统一映射回 id；未识别返回 null） */
+export function itemIdOf(nameOrId: string): string | null {
+  const hit = marketList().find((i) => i.id === nameOrId || i.name === nameOrId || i.name.includes(nameOrId) || nameOrId.includes(i.name))
+  return hit?.id ?? null
+}
+
 /** 坊市购买：扣灵石、进背包；灵石不足返回 ok:false */
 export function marketBuy(
   state: GameState,
@@ -214,6 +224,42 @@ export function marketSell(
   }
 }
 
+/** 坊市功法卷轴 → 品级（PRICE_IDS 手工映射） */
+const GONGFA_GRADE_OF_ITEM: Record<string, string> = { 'xuanjie-gongfa': '玄', 'dijie-gongfa': '地' }
+
+/**
+ * 功法研习（原文 9.4）：消耗背包中的功法卷轴，悟性判定通过后习得一门
+ * 对应品级、尚未学会的「功法」类条目（黄/玄/地/天/仙逐级对应 GONGFAS）。
+ * 失败不消耗卷轴（原文未言明研习失败损耗，取玩家友好约定）。
+ */
+export function studyGongfa(state: GameState, itemId: string): { state: GameState; ok: boolean; msg: string } {
+  const held = state.bag[itemId] ?? 0
+  if (held <= 0) return { state, ok: false, msg: `背包里没有这份功法卷轴，无可研习。` }
+  const item = marketList().find((i) => i.id === itemId)
+  if (!item || item.kind !== '功法') {
+    return { state, ok: false, msg: `「${itemNameOf(itemId)}」并非功法卷轴，无法研习。` }
+  }
+  const grade = GONGFA_GRADE_OF_ITEM[itemId] ?? item.name.replace(/阶功法$/, '').replace(/功法$/, '')
+  const learned = new Set(state.gongfaIds)
+  const candidates = GONGFAS.filter((g) => g.type === '功法' && g.grade === grade && !learned.has(g.id))
+  if (candidates.length === 0) {
+    return { state, ok: false, msg: `你已将${grade}阶功法尽数学会，此卷已无新意，可售回坊市换些灵石。` }
+  }
+  const rate = clamp(state.player.stats.wuxing * 3 + state.player.stats.daoxin * 0.5, 1, 95)
+  const { ok } = roll(rate)
+  if (!ok) {
+    return { state, ok: false, msg: `你闭目参详${item.name}，字句晦涩，一时未能入门（掷骰 ${rate}% 失败）。卷轴犹在，可再研习或请高人指点。` }
+  }
+  const gongfa = pick(candidates)
+  const bag = { ...state.bag, [itemId]: held - 1 }
+  if (bag[itemId] <= 0) delete bag[itemId]
+  return {
+    state: { ...state, bag, gongfaIds: [...state.gongfaIds, gongfa.id], log: [...state.log, `研习 ${item.name}，习得《${gongfa.name}》`] },
+    ok: true,
+    msg: `你静坐参详${item.name}，字字珠玑——功法《${gongfa.name}》（${gongfa.grade}阶）已入你识海（${gongfa.effect}）。卷轴化为齑粉。`,
+  }
+}
+
 /** 描述 effect 结算前后的数值变化 */
 function describeEffect(res: Resources, next: Resources, e: NonNullable<MarketItem['effect']>): string {
   const parts: string[] = []
@@ -238,7 +284,7 @@ export function useItem(state: GameState, itemId: string): { state: GameState; o
   }
   const e = item.effect
   if (!e) {
-    return { state, ok: false, msg: `${item.name} 无需服用：功法请到功法面板研习，筑基丹请在突破时消耗` }
+    return { state, ok: false, msg: `${item.name} 无需服用：功法请用「研习 名称」习得，筑基丹请在突破时消耗` }
   }
   const res = state.res
   if (
@@ -313,7 +359,7 @@ export function robbery(state: GameState): { state: GameState; ok: boolean; msg:
     const hp = Math.max(1, state.res.hp - lost)
     const newState: GameState = {
       ...state,
-      res: { ...state.res, hp, injury: '轻伤' },
+      res: { ...state.res, hp, injury: 'light' },
       log: [...state.log, `劫掠失手反遭重创：气血 -${state.res.hp - hp}，轻伤`],
     }
     return {

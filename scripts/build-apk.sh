@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # 一键构建安卓 APK（debug 版，免签名可侧载）
-# 本机 JDK 与 Android SDK 路径已硬编码，无需配置环境变量
+# 路径可用环境变量覆盖：JAVA_HOME / ANDROID_HOME / ANDROID_USER_HOME / GRADLE_USER_HOME
 set -e
 cd "$(dirname "$0")/.."
 
-export JAVA_HOME="/Users/asura/Documents/jdk-21.0.12.1.jdk/Contents/Home"
+export JAVA_HOME="${JAVA_HOME:-/Users/asura/Documents/jdk-21.0.12.1.jdk/Contents/Home}"
 export PATH="$JAVA_HOME/bin:$PATH"
-SDK_DIR="/Users/asura/Documents/AI_问道长生/android-sdk"
-ANDROID_USER_HOME="/Users/asura/Documents/AI_问道长生/.android-home"
-export GRADLE_USER_HOME="/Users/asura/Documents/AI_问道长生/.gradle-home"
+SDK_DIR="${ANDROID_HOME:-/Users/asura/Documents/AI_问道长生/android-sdk}"
+ANDROID_USER_HOME="${ANDROID_USER_HOME:-/Users/asura/Documents/AI_问道长生/.android-home}"
+export GRADLE_USER_HOME="${GRADLE_USER_HOME:-/Users/asura/Documents/AI_问道长生/.gradle-home}"
 
 echo "① 检查 JDK / SDK…"
 [ -x "$JAVA_HOME/bin/java" ] || { echo "❌ 找不到 JDK：$JAVA_HOME"; exit 1; }

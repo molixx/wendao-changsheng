@@ -69,6 +69,29 @@ export const STAGE_COST: { realm: string; cost: string }[] = [
 ]
 
 /**
+ * 小境界所需修为（每阶，即 cultMax 基础值）——引擎单源表（cultivation.ts / breakthrough.ts 共用）。
+ * 原文 9.1b 明确：炼气每阶 100 点、元婴每阶 1000+ 点、羽化/登仙每阶数千点；
+ * 其余各境原文未给精确值，按「境界越高所需修为越多」的累加曲线推算（增量逐段翻倍）。
+ */
+export const STAGE_COST_BASE: Record<string, number> = {
+  炼气: 100, // 原文明确：每阶 100 点
+  筑基: 200, // 推算
+  结晶: 350, // 推算
+  金丹: 500, // 推算
+  具灵: 750, // 推算
+  元婴: 1000, // 原文明确：每阶 1000+ 点（取下限）
+  化神: 1500, // 推算
+  悟道: 2000, // 推算
+  羽化: 3000, // 原文明确：每阶数千点（取 3000）
+  登仙: 5000, // 原文明确：每阶数千点（取 5000）
+}
+
+export function stageCostOf(realm: string): number {
+  const c = STAGE_COST_BASE[realm]
+  return typeof c === 'number' ? c : 100
+}
+
+/**
  * 境界压制规则（原文 16.0）。
  * 高一阶：伤害 ×0.4、对方减伤 60%；高二阶以上：送死；克制手段为例外清单。
  */

@@ -17,3 +17,4 @@ scripts/dbg*.ts
 # 冗余与可再生文件
 public/favicon.png
 screenshots/
+public/bg/*.png

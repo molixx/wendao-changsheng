@@ -44,7 +44,7 @@ export interface Resources {
   karma: number // 业力
   /** 心境档：1.2 / 1.0 / 0.5 */
   mood: 1.2 | 1.0 | 0.5
-  /** 受伤状态（轻伤/重伤/垂死/内伤/中毒蛊/心魔缠身），null 为无 */
+  /** 受伤状态（存 id：light/severe/dying/inner/poison/heart-demon，见 data/systems.ts INJURIES 表），null 为无 */
   injury: string | null
   statusEffects: string[]
 }
@@ -70,6 +70,43 @@ export interface SectInfo {
   contribution: number
 }
 
+/**
+ * flags 魔法键收编：已知键全部类型化（消灭「键表示漂移」类 bug 的根源，如 injury id/中文名漂移）。
+ * fate:* 逆天改命计数与未来扩展键由索引签名兜底。
+ */
+export interface GameFlags {
+  /** 不足一年的月数余数（跨回合累积，攒满 12 折算 1 年） */
+  ageMonths?: number
+  /** 大突破失败后的禁破冷却（月） */
+  breakCooldown?: number
+  /** 暗伤：突破失败倒退一阶留下（AI 结算时全属性 −10%） */
+  hiddenInjury?: boolean
+  /** 入魔 */
+  modao?: boolean
+  /** 灵兽认主 */
+  spiritBeast?: boolean
+  /** 秘境现世 */
+  secretRealmOpen?: boolean
+  /** 战斗现场（CombatState JSON；单键强类型，不再散落 combat.result/combat.enemy 等子键） */
+  combat?: string
+  /** 声望（创角出身 bonus 落地，状态卡展示） */
+  fame?: number
+  /** 死亡原因（坐化/战死/渡劫陨落…） */
+  dead?: string
+  /** 所在地（五洲/宗门/秘境名） */
+  location?: string
+  /** 开局剧本 id */
+  openingScript?: string
+  /** 心如磐石已消耗（挡过一次心魔） */
+  heartStoneUsed?: boolean
+  /** 突破失败标记（快照回退提示用） */
+  lastBreakFailed?: boolean
+  /** 战斗失利标记（快照回退提示用） */
+  combatLost?: boolean
+  /** 逆天改命持有计数（fate:名称 → 次数）及其它扩展键 */
+  [key: string]: string | number | boolean | undefined
+}
+
 export interface GameState {
   version: number
   turn: number // 回合数（1 回合 = 1 个月）
@@ -85,7 +122,7 @@ export interface GameState {
   cave: Cave
   sectInfo: SectInfo
   mainQuest: string
-  flags: Record<string, string | number | boolean>
+  flags: GameFlags
   log: string[] // 大事记（存档压缩包）
   lastSaveTurn: number
 }
@@ -112,7 +149,7 @@ export interface NarratorSettings {
   apiKey: string
   model: string
   temperature: number
-  /** 每回合是否调用 LLM；false 则始终离线降级 */
+  /** 每回合是否调用 LLM；false 时系统指令降级为代码结算可玩，自由行动需配置 */
   useLlm: boolean
 }
 

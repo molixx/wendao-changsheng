@@ -91,6 +91,7 @@ export function StatusCard({ game, spiritRootElements = [], location = '未知' 
         </p>
         {row('体质', physique?.name && `${physique.name}（${physique.desc}）`)}
         {row('出身', origin?.name)}
+        {typeof game.flags.fame === 'number' && row('声望', `${game.flags.fame}（官宦门第，可走大夏国师线）`)}
         {row('道途', path?.name)}
         {talents.length > 0 && row('天赋', talents.join('、'))}
 

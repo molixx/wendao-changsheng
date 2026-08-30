@@ -7,7 +7,9 @@ const QUICK_CMDS = ['修炼', '突破', '悟道', '洞府', '地图', '背包', 
 
 export function CommandBar() {
   const [input, setInput] = useState('')
-  const { busy, submitAction } = useGame()
+  // 选择器订阅：只订阅 busy 与提交函数，避免每回合全量重渲染
+  const busy = useGame((s) => s.busy)
+  const submitAction = useGame((s) => s.submitAction)
 
   const send = (text: string) => {
     const v = text.trim()

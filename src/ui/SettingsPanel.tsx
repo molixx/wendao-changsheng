@@ -80,7 +80,7 @@ export function SettingsPanel() {
               checked={form.useLlm}
               onChange={(e) => setForm({ ...form, useLlm: e.target.checked })}
             />
-            <span>使用 LLM 叙事（关闭则离线模式）</span>
+            <span>使用 LLM 叙事（关闭则仅系统指令可玩）</span>
           </label>
 
           {/* 测试连接 */}
@@ -127,7 +127,7 @@ export function SettingsPanel() {
           </div>
 
           <p className="cmdline">
-            未配置 Key 或调用失败时自动降级为离线叙事库，游戏不会卡死。
+            未配置 Key 时：系统指令（修炼 / 突破 / 战斗 / 坊市等）仍可游玩（代码结算）；自由行动与叙事演绎需配置 Key。
           </p>
           <div className="flex gap-3">
             <button onClick={save} className="flex-1 rounded-xl bg-[color:var(--theme-color)] px-4 py-2.5 font-bold text-white">
