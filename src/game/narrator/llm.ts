@@ -345,7 +345,9 @@ export async function narrateSystem(
       // 玩家选项作为独立 user 消息（让 AI 明确看到玩家做了什么）
       { role: 'user', content: `玩家行动：「${action}」\n结算结果：${resultSummary}` },
     ],
-    response_format: { type: 'json_object' },
+    // 注意：不传 response_format: json_object —— deepseek-v4-flash 等模型在强制 JSON 模式下会
+    // 退化输出纯空白（已实测确认）。JSON 由提示词硬约束（"必须且只能输出一个 JSON 对象"）+
+    // parseJsonContent 宽松解析（围栏/夹带文字）兜底，与 testConnection 成功路径一致。
     temperature: settings.temperature,
     max_tokens: 8000,
   }
@@ -378,7 +380,7 @@ export async function narrateOpening(
       },
       { role: 'user', content: `创角信息：${characterSummary}\n开局剧本：${scriptDesc}` },
     ],
-    response_format: { type: 'json_object' },
+    // 不传 response_format（见 narrateSystem 注释：强制 JSON 模式会导致模型输出纯空白）
     temperature: settings.temperature,
     max_tokens: 8000,
   }
@@ -423,7 +425,7 @@ export async function callNarrator(
       temperature: settings.temperature,
       max_tokens: 8000,
     }
-    body.response_format = { type: 'json_object' }
+    // 不传 response_format（见 narrateSystem 注释：强制 JSON 模式会导致模型输出纯空白）
     if (isDeepSeek) body.thinking = { type: 'disabled' }
     try {
       const content = await fetchContent(settings, body)
