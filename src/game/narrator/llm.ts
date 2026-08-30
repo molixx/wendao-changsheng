@@ -20,13 +20,37 @@ export interface NarratorTurn {
   deltas?: Record<string, unknown>
 }
 
-/** 剥离 Markdown 代码块围栏（DeepSeek 常用 ```json ... ``` 包裹 JSON，直接 parse 必失败）后解析 JSON */
+/** 剥离 Markdown 代码块围栏（DeepSeek 常用 ```json ... ``` 包裹 JSON，直接 parse 必失败）后解析 JSON；
+ *  直接解析失败时退回「提取首个平衡 {...} 块」的宽松模式（兼容模型在 JSON 前后夹带说明文字） */
 export function parseJsonContent(content: string): unknown {
   let t = (content ?? '').trim()
   // ```json\n...\n``` 或 ```\n...\n```
   const fence = t.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```\s*$/)
   if (fence) t = fence[1].trim()
-  return JSON.parse(t)
+  try {
+    return JSON.parse(t)
+  } catch {
+    // 宽松模式：取第一个 '{' 到与之配平的 '}' 之间的内容再解析
+    const start = t.indexOf('{')
+    if (start >= 0) {
+      let depth = 0
+      for (let i = start; i < t.length; i++) {
+        if (t[i] === '{') depth++
+        else if (t[i] === '}') {
+          depth--
+          if (depth === 0) {
+            const candidate = t.slice(start, i + 1)
+            try {
+              return JSON.parse(candidate)
+            } catch {
+              break // 候选也非法，继续抛原始错误
+            }
+          }
+        }
+      }
+    }
+    throw new SyntaxError(`AI 返回的内容不是合法 JSON：${t.slice(0, 120)}`)
+  }
 }
 
 /** 是否含 LaTeX/Markup 特征（需要清洗） */
@@ -270,11 +294,14 @@ async function fetchContent(settings: NarratorSettings, body: Record<string, unk
         max_tokens: body.max_tokens,
         thinking: body.thinking,
       })
-      // 自适应降级重试：① 部分兼容端点对 max_tokens 超限会静默返回空 → 缩回 4096；② 对 thinking 参数不兼容 → 去掉
+      // 自适应降级重试：① 部分兼容端点对 max_tokens 超限会静默返回空 → 缩回 4096；② 对 thinking 参数不兼容 → 去掉；
+      // ③ 对 response_format: json_object 不兼容（思考模型常见）→ 去掉，靠提示词约束 JSON + 宽松解析兜底
       if (attempt === 0 && typeof body.max_tokens === 'number' && body.max_tokens > 4096) {
         body.max_tokens = 4096
       } else if (attempt === 1 && 'thinking' in body) {
         delete body.thinking
+      } else if (attempt === 2 && 'response_format' in body) {
+        delete body.response_format
       }
     } catch (e) {
       clearTimeout(timer)
