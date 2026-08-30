@@ -202,7 +202,8 @@ proposedStateChanges 仅代表“剧情想推进的状态意图”，并非直�
 【输出格式（硬性要求，违反即回合失败）】
 你的**全部输出**必须且只能是一个机器可解析的 JSON 对象，字段名与结构必须完全一致：
 {"summary": "20~40字一句话摘要", "narrative": "剧情（2~5句、300~800字、纯中文）", "options": [{"text": "选项文字", "tag": "平和"}], "timePassedMonths": 0}
-严禁输出 JSON 对象之外的任何内容：不要散文、不要引语、不要 Markdown 代码块、不要解释、不要开场白或结束语。`
+严禁输出 JSON 对象之外的任何内容：不要散文、不要引语、不要 Markdown 代码块、不要解释、不要开场白或结束语。
+注意：对话历史中的 assistant 消息是前端解析后的叙事文本（其原始输出是 JSON 对象）——**不要模仿那些散文的格式**，你的输出必须始终是一个 JSON 对象。`
 }
 
 /** 连接测试结果 */
@@ -347,13 +348,14 @@ export async function narrateSystem(
 只输出一个 JSON 对象：{"narrative": "...", "summary": "...", "options": [{"text": "...", "tag": "平和"}], "timePassedMonths": 0, "deltas": {}}。你的全部输出只能是这个 JSON 对象：严禁散文、引语、Markdown、解释或任何 JSON 之外的内容，narrative 必须为纯中文文字。`,
       },
       ...history,
-      // 玩家选项作为独立 user 消息（让 AI 明确看到玩家做了什么）
-      { role: 'user', content: `玩家行动：「${action}」\n结算结果：${resultSummary}` },
+      // 玩家选项作为独立 user 消息（让 AI 明确看到玩家做了什么）；末尾重申 JSON 输出（防散文漂移）
+      { role: 'user', content: `玩家行动：「${action}」\n结算结果：${resultSummary}\n（请以 JSON 对象回应，不要输出散文。）` },
     ],
     // 注意：不传 response_format: json_object —— deepseek-v4-flash 等模型在强制 JSON 模式下会
     // 退化输出纯空白（已实测确认）。JSON 由提示词硬约束（"必须且只能输出一个 JSON 对象"）+
     // parseJsonContent 宽松解析（围栏/夹带文字）兜底，与 testConnection 成功路径一致。
-    temperature: settings.temperature,
+    // JSON 结构化输出对高温敏感：请求端温度软封顶 0.7（用户设置可更高，但此处兜底防跑偏）
+    temperature: Math.min(settings.temperature, 0.7),
     max_tokens: 8000,
   }
   if (isDeepSeek) body.thinking = { type: 'disabled' }
@@ -383,10 +385,10 @@ export async function narrateOpening(
         content: `${system}\n\n【开局演绎】玩家刚刚创角完毕，等待你展开入世的第一幕。请以天道系统的口吻，依据玩家创角信息与所选开局剧本，用修仙文风自由展开开局情境（篇幅控制在 2~5 句/300~800 字，充分写出氛围、细节与人物状态），并生成下一步选项（数量、长度不限（3~4 个）；可带简短语义标签，自由发挥）。
 只输出一个 JSON 对象：{"narrative": "...", "summary": "20~40字概述开局情境，必填", "options": [{"text": "...", "tag": "平和"}]}。你的全部输出只能是这个 JSON 对象：严禁散文、引语、解释或任何 JSON 之外的内容，narrative 必须是纯中文文字，禁止任何 LaTeX / Markdown / HTML 标记。`,
       },
-      { role: 'user', content: `创角信息：${characterSummary}\n开局剧本：${scriptDesc}` },
+      { role: 'user', content: `创角信息：${characterSummary}\n开局剧本：${scriptDesc}\n（请以 JSON 对象回应，不要输出散文。）` },
     ],
-    // 不传 response_format（见 narrateSystem 注释：强制 JSON 模式会导致模型输出纯空白）
-    temperature: settings.temperature,
+    // 不传 response_format（见 narrateSystem 注释：强制 JSON 模式会导致模型输出纯空白）；温度软封顶 0.7
+    temperature: Math.min(settings.temperature, 0.7),
     max_tokens: 8000,
   }
   if (isDeepSeek) body.thinking = { type: 'disabled' }
@@ -410,15 +412,16 @@ export async function callNarrator(
 ): Promise<NarratorTurn> {
   const isDeepSeek = /deepseek\.com$/i.test(settings.baseUrl.replace(/\/+$/, ''))
   // 三条档：完整历史 / 最近 12 条 / 合规提示重试（模型常见「写出叙事但忘了包 JSON」→ 明确要求只输出 JSON）
+  // 所有档的末尾 user 消息都重申 JSON（防散文格式漂移：历史中 assistant 消息是解析后的散文）
   const variants: { messages: { role: string; content: string }[] }[] = [
     // 优先附带最近 3 个完整对话（user+assistant 各 3 条）以保证上下文完整性
-    { messages: [{ role: 'system', content: system }, ...history.slice(-6), { role: 'user', content: userAction }] },
+    { messages: [{ role: 'system', content: system }, ...history.slice(-6), { role: 'user', content: `${userAction}\n（请以 JSON 对象回应，不要输出散文。）` }] },
     // 回退策略：附最近 12 个回合（最多 24 条 user/assistant 对）作为重试上下文
     {
       messages: [
         { role: 'system', content: `${system}\n\n（注：此为重试，仅附最近对话，请直接回应本轮，保持剧情接续。）` },
         ...history.slice(-24),
-        { role: 'user', content: userAction },
+        { role: 'user', content: `${userAction}\n（请以 JSON 对象回应，不要输出散文。）` },
       ],
     },
     // 合规提示：上一轮输出非 JSON 时的定向纠偏（不新增剧情信息，只重申输出协议）
